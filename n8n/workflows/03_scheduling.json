@@ -1,0 +1,1313 @@
+{
+  "name": "03 - [SUB] Agendamento de Consulta",
+  "nodes": [
+    {
+      "parameters": {
+        "inputSource": "passthrough"
+      },
+      "id": "c4522bd1-ea56-496d-9af1-51741cfaf5cd",
+      "name": "Trigger do workflow principal",
+      "type": "n8n-nodes-base.executeWorkflowTrigger",
+      "typeVersion": 1.1,
+      "position": [
+        6672,
+        3744
+      ]
+    },
+    {
+      "parameters": {
+        "jsCode": "const data = $input.first().json;\nconst state = data.conversation_state;\nconst messageText = (data.messageText || '').trim();\n\nlet action = 'unknown';\n\nswitch(state) {\n  case 'SCHEDULING_SPECIALTY':\n    action = 'LIST_SPECIALTIES';\n    break;\n  case 'SCHEDULING_DOCTOR':\n    action = 'SELECT_DOCTOR';\n    break;\n  case 'SCHEDULING_SLOT':\n    action = 'SELECT_SLOT';\n    break;\n  case 'SCHEDULING_CONFIRM':\n    action = 'CONFIRM_APPOINTMENT';\n    break;\n  default:\n    action = 'LIST_SPECIALTIES';\n}\n\nreturn [{ json: { ...data, action, userChoice: messageText } }];"
+      },
+      "id": "f3857740-38d8-4778-9d71-9e014ab66612",
+      "name": "Determinar etapa",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        6912,
+        3744
+      ]
+    },
+    {
+      "parameters": {
+        "rules": {
+          "values": [
+            {
+              "conditions": {
+                "options": {
+                  "caseSensitive": true,
+                  "leftValue": "",
+                  "typeValidation": "strict",
+                  "version": 1
+                },
+                "conditions": [
+                  {
+                    "id": "r-spec",
+                    "leftValue": "={{ $json.action }}",
+                    "rightValue": "LIST_SPECIALTIES",
+                    "operator": {
+                      "type": "string",
+                      "operation": "equals"
+                    }
+                  }
+                ],
+                "combinator": "and"
+              },
+              "renameOutput": true,
+              "outputKey": "LIST_SPECIALTIES"
+            },
+            {
+              "conditions": {
+                "options": {
+                  "caseSensitive": true,
+                  "leftValue": "",
+                  "typeValidation": "strict",
+                  "version": 1
+                },
+                "conditions": [
+                  {
+                    "id": "r-doc",
+                    "leftValue": "={{ $json.action }}",
+                    "rightValue": "SELECT_DOCTOR",
+                    "operator": {
+                      "type": "string",
+                      "operation": "equals"
+                    }
+                  }
+                ],
+                "combinator": "and"
+              },
+              "renameOutput": true,
+              "outputKey": "SELECT_DOCTOR"
+            },
+            {
+              "conditions": {
+                "options": {
+                  "caseSensitive": true,
+                  "leftValue": "",
+                  "typeValidation": "strict",
+                  "version": 1
+                },
+                "conditions": [
+                  {
+                    "id": "r-slot",
+                    "leftValue": "={{ $json.action }}",
+                    "rightValue": "SELECT_SLOT",
+                    "operator": {
+                      "type": "string",
+                      "operation": "equals"
+                    }
+                  }
+                ],
+                "combinator": "and"
+              },
+              "renameOutput": true,
+              "outputKey": "SELECT_SLOT"
+            },
+            {
+              "conditions": {
+                "options": {
+                  "caseSensitive": true,
+                  "leftValue": "",
+                  "typeValidation": "strict",
+                  "version": 1
+                },
+                "conditions": [
+                  {
+                    "id": "r-conf",
+                    "leftValue": "={{ $json.action }}",
+                    "rightValue": "CONFIRM_APPOINTMENT",
+                    "operator": {
+                      "type": "string",
+                      "operation": "equals"
+                    }
+                  }
+                ],
+                "combinator": "and"
+              },
+              "renameOutput": true,
+              "outputKey": "CONFIRM_APPOINTMENT"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "id": "eab98f75-4bd4-4619-a423-05f7dd495f49",
+      "name": "Switch etapa",
+      "type": "n8n-nodes-base.switch",
+      "typeVersion": 3,
+      "position": [
+        7136,
+        3712
+      ]
+    },
+    {
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "SELECT DISTINCT specialty\nFROM public.doctors\nWHERE clinic_id = $1\n  AND active = true\nORDER BY specialty;",
+        "options": {
+          "queryReplacement": "{{ $json.clinic_id }}"
+        }
+      },
+      "id": "b5e94c3f-1f39-49ae-8701-ae89d2e8e5e9",
+      "name": "Listar especialidades",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.5,
+      "position": [
+        7456,
+        3184
+      ],
+      "alwaysOutputData": true,
+      "credentials": {
+        "postgres": {
+          "id": "hC1ecti2DctPVZwU",
+          "name": "Supabase account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "jsCode": "const data = $('Determinar etapa').first().json;\nconst specialties = $input.all().map(item => item.json.specialty);\n\nlet text = '🏥 *Especialidades disponíveis:*\\n\\n';\nspecialties.forEach((s, i) => {\n  text += `${i + 1}️⃣ ${s}\\n`;\n});\ntext += '\\nDigite o *número* da especialidade desejada.';\n\nreturn [{\n  json: {\n    ...data,\n    responseText: text,\n    specialtiesList: specialties,\n    newState: 'SCHEDULING_DOCTOR'\n  }\n}];"
+      },
+      "id": "d7c570e4-a6e8-41bc-b9f5-afdee517e5a1",
+      "name": "Formatar lista de especialidades",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        7664,
+        3184
+      ]
+    },
+    {
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "UPDATE public.conversations\nSET state = $1,\n    messages = messages || jsonb_build_array(jsonb_build_object('specialties', $2::text)),\n    updated_at = NOW()\nWHERE clinic_id = $3\n  AND patient_id = $4;",
+        "options": {
+          "queryReplacement": "{{ $json.newState }}, {{ JSON.stringify($json.specialtiesList) }}, {{ $json.clinic_id }}, {{ $json.patient_id }}"
+        }
+      },
+      "id": "b3acffa2-adae-4199-af42-643df605dba1",
+      "name": "Atualizar estado (especialidade)",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.5,
+      "position": [
+        7904,
+        3184
+      ],
+      "credentials": {
+        "postgres": {
+          "id": "hC1ecti2DctPVZwU",
+          "name": "Supabase account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "=http://evolution-api:8080/message/sendText/{{ $('Trigger do workflow principal').first().json.instanceName }}",
+        "authentication": "genericCredentialType",
+        "genericAuthType": "httpHeaderAuth",
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ JSON.stringify({ number: $('Trigger do workflow principal').first().json.fromNumber, text: $('Formatar lista de especialidades').first().json.responseText }) }}",
+        "options": {}
+      },
+      "id": "7584188a-3db3-4328-a41c-6c93a5c9fd6f",
+      "name": "Enviar especialidades",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        8112,
+        3184
+      ],
+      "credentials": {
+        "httpHeaderAuth": {
+          "id": "MOeN9qdxU9au08j3",
+          "name": "Evolution API"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "jsCode": "// Recupera especialidades da conversa e identifica a escolha\nconst data = $('Determinar etapa').first().json;\nconst userChoice = (data.userChoice || '').trim();\n\n// Usuário quer cancelar o agendamento\nif (userChoice === '0') {\n  return [{ json: { ...data, selectedSpecialty: null, validChoice: false, cancelled: true, rePromptText: '' } }];\n}\n\nconst choice = parseInt(userChoice);\n\nlet specialties = [];\ntry {\n  const msgs = typeof data.messages === 'string' ? JSON.parse(data.messages) : (data.messages || []);\n  for (const m of msgs) {\n    if (m.specialties) {\n      specialties = typeof m.specialties === 'string' ? JSON.parse(m.specialties) : m.specialties;\n    }\n  }\n} catch(e) {}\n\nconst selectedSpecialty = specialties[choice - 1] || null;\n\nlet rePromptText = '';\nif (!selectedSpecialty) {\n  rePromptText = '⚠️ Não entendi. Por favor, envie apenas o *número* da especialidade:\\n\\n';\n  specialties.forEach((s, i) => { rePromptText += `${i+1}️⃣ ${s}\n`; });\n  rePromptText += '\\nDigite o *número* desejado.';\n}\n\nreturn [{\n  json: {\n    ...data,\n    selectedSpecialty,\n    validChoice: selectedSpecialty !== null,\n    cancelled: false,\n    rePromptText\n  }\n}];"
+      },
+      "id": "b9292129-3f78-451e-b551-eb5273d49b46",
+      "name": "Identificar especialidade escolhida",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        7456,
+        3392
+      ]
+    },
+    {
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "SELECT id, name, specialty\nFROM public.doctors\nWHERE clinic_id = $1\n  AND specialty = $2\n  AND active = true\nORDER BY name;",
+        "options": {
+          "queryReplacement": "{{ $json.clinic_id }}, {{ $json.selectedSpecialty }}"
+        }
+      },
+      "id": "68751d52-219f-4d71-aa46-3ee847cbe616",
+      "name": "Listar médicos da especialidade",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.5,
+      "position": [
+        7904,
+        3376
+      ],
+      "alwaysOutputData": true,
+      "credentials": {
+        "postgres": {
+          "id": "hC1ecti2DctPVZwU",
+          "name": "Supabase account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "jsCode": "const data = $('Identificar especialidade escolhida').first().json;\nconst doctors = $input.all().map(item => ({\n  id: item.json.id,\n  name: item.json.name\n}));\n\nlet text = `👨‍⚕️ *Médicos de ${data.selectedSpecialty}:*\\n\\n`;\ndoctors.forEach((d, i) => {\n  text += `${i + 1}️⃣ ${d.name}\\n`;\n});\ntext += '\\nDigite o *número* do médico desejado.';\n\nreturn [{\n  json: {\n    ...data,\n    responseText: text,\n    doctorsList: doctors,\n    newState: 'SCHEDULING_SLOT'\n  }\n}];"
+      },
+      "id": "0e8b449d-8390-4951-be39-710411c30b56",
+      "name": "Formatar lista de médicos",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        8112,
+        3376
+      ]
+    },
+    {
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "UPDATE public.conversations\nSET state = 'SCHEDULING_SLOT',\n    messages = messages || jsonb_build_array(jsonb_build_object(\n      'selected_specialty', $1,\n      'doctors', $2::text\n    )),\n    updated_at = NOW()\nWHERE clinic_id = $3\n  AND patient_id = $4;",
+        "options": {
+          "queryReplacement": "{{ $json.selectedSpecialty }}, {{ JSON.stringify($json.doctorsList) }}, {{ $json.clinic_id }}, {{ $json.patient_id }}"
+        }
+      },
+      "id": "8209def0-2305-4dd6-9a9d-87b2425ab037",
+      "name": "Atualizar estado (médico)",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.5,
+      "position": [
+        8304,
+        3376
+      ],
+      "credentials": {
+        "postgres": {
+          "id": "hC1ecti2DctPVZwU",
+          "name": "Supabase account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "=http://evolution-api:8080/message/sendText/{{ $('Trigger do workflow principal').first().json.instanceName }}",
+        "authentication": "genericCredentialType",
+        "genericAuthType": "httpHeaderAuth",
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ JSON.stringify({ number: $('Trigger do workflow principal').first().json.fromNumber, text: $('Formatar lista de médicos').first().json.responseText }) }}",
+        "options": {}
+      },
+      "id": "3468822d-2247-41a9-9778-51d0bd155a78",
+      "name": "Enviar médicos",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        8496,
+        3376
+      ],
+      "credentials": {
+        "httpHeaderAuth": {
+          "id": "MOeN9qdxU9au08j3",
+          "name": "Evolution API"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "jsCode": "// Identifica médico escolhido e busca horários no banco de dados local\nconst data = $('Determinar etapa').first().json;\nconst userChoice = (data.userChoice || '').trim();\n\n// Usuário quer cancelar o agendamento\nif (userChoice === '0') {\n  return [{ json: { ...data, error: true, cancelled: true, rePromptText: '' } }];\n}\n\nconst choice = parseInt(userChoice);\n\nlet doctors = [];\ntry {\n  const msgs = typeof data.messages === 'string' ? JSON.parse(data.messages) : (data.messages || []);\n  for (const m of msgs) {\n    if (m.doctors) {\n      doctors = typeof m.doctors === 'string' ? JSON.parse(m.doctors) : m.doctors;\n    }\n  }\n} catch(e) {}\n\nconst selectedDoctor = doctors[choice - 1] || null;\n\nif (!selectedDoctor) {\n  let rePromptText = '⚠️ Não entendi. Por favor, envie apenas o *número* do médico:\\n\\n';\n  doctors.forEach((d, i) => { rePromptText += `${i+1}️⃣ ${d.name}\\n`; });\n  rePromptText += '\\nDigite o *número* desejado.';\n  return [{ json: { ...data, error: true, cancelled: false, rePromptText } }];\n}\n\n// Preparar busca de horários no banco\nconst now = new Date();\nconst oneWeekLater = new Date(now.getTime() + 7 * 24 * 60 * 60 * 1000);\n\nreturn [{\n  json: {\n    ...data,\n    error: false,\n    cancelled: false,\n    selectedDoctor,\n    doctor_id: selectedDoctor.id,\n    doctor_name: selectedDoctor.name,\n    freeBusyTimeMin: now.toISOString(),\n    freeBusyTimeMax: oneWeekLater.toISOString()\n  }\n}];"
+      },
+      "id": "c8909def-8168-443e-ae2a-d6ac434cdc34",
+      "name": "Identificar médico e buscar horários",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        7456,
+        3760
+      ]
+    },
+    {
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "SELECT scheduled_at FROM public.appointments WHERE doctor_id = $1 AND scheduled_at >= NOW() AND status = 'scheduled';",
+        "options": {
+          "queryReplacement": "{{ $json.doctor_id }}"
+        }
+      },
+      "id": "c63e3b41-7638-4719-acb6-2727c345043d",
+      "name": "Buscar Agendamentos DB",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.5,
+      "position": [
+        7904,
+        3744
+      ],
+      "alwaysOutputData": true,
+      "credentials": {
+        "postgres": {
+          "id": "hC1ecti2DctPVZwU",
+          "name": "Supabase account"
+        }
+      },
+      "notes": "Busca horários ocupados diretamente na tabela appointments do banco de dados local (PostgreSQL)."
+    },
+    {
+      "parameters": {
+        "jsCode": "const prevData = $('Identificar médico e buscar horários').first().json;\nconst dbAppointments = $input.all().map(item => item.json.scheduled_at).filter(Boolean);\n\nconst businessStart = 8;\nconst businessEnd = 18;\nconst slotDurationMin = 30;\nconst MAX_SLOTS = 200;\n\nconst busyPeriods = dbAppointments.map(d => ({\n  start: new Date(d).getTime(),\n  end: new Date(d).getTime() + slotDurationMin * 60 * 1000\n}));\n\nconst allSlots = [];\nconst now = new Date();\n\nfor (let day = 0; day < 14 && allSlots.length < MAX_SLOTS; day++) {\n  const date = new Date(now);\n  date.setDate(date.getDate() + day);\n  if (date.getDay() === 0 || date.getDay() === 6) continue;\n  \n  for (let hour = businessStart; hour < businessEnd && allSlots.length < MAX_SLOTS; hour++) {\n    for (let min = 0; min < 60 && allSlots.length < MAX_SLOTS; min += slotDurationMin) {\n      const slotStart = new Date(date);\n      slotStart.setHours(hour, min, 0, 0);\n      if (slotStart.getTime() <= now.getTime()) continue;\n      \n      const slotEnd = new Date(slotStart.getTime() + slotDurationMin * 60 * 1000);\n      const isBusy = busyPeriods.some(bp =>\n        slotStart.getTime() < bp.end && slotEnd.getTime() > bp.start\n      );\n      \n      if (!isBusy) {\n        allSlots.push({\n          start: slotStart.toISOString(),\n          end: slotEnd.toISOString(),\n          display: slotStart.toLocaleDateString('pt-BR', { weekday: 'short', day: '2-digit', month: '2-digit' }) + \n                   ' às ' + slotStart.toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' })\n        });\n      }\n    }\n  }\n}\n\nconst pageSlots = allSlots.slice(0, 5);\nconst hasMore = allSlots.length > 5;\nconst hasNextDay = allSlots.findIndex(s => s.display.split(' às ')[0] !== pageSlots[0]?.display.split(' às ')[0]) !== -1;\n\nlet text = `📅 *Horários disponíveis com ${prevData.doctor_name}:*\n\n`;\npageSlots.forEach((s, i) => { text += `${i + 1}️⃣ ${s.display}\n`; });\nif (hasMore) text += `\n➡️ *6* = Ver mais horários`;\nif (hasNextDay) text += `\n⏭️ *7* = Próximo dia`;\ntext += `\n0️⃣ Cancelar\n\nDigite o *número* do horário desejado.`;\n\nif (allSlots.length === 0) {\n  text = `Infelizmente não há horários disponíveis para ${prevData.doctor_name} nos próximos 14 dias. 😔\\n\\nEnvie qualquer mensagem para voltar ao menu.`;\n}\n\nreturn [{\n  json: {\n    ...prevData,\n    availableSlots: pageSlots,\n    allSlots,\n    responseText: text,\n    hasSlots: allSlots.length > 0\n  }\n}];"
+      },
+      "id": "aa969b6e-4ab5-4b57-beef-9e2aa192feea",
+      "name": "Calcular slots disponíveis",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        8112,
+        3744
+      ]
+    },
+    {
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "UPDATE public.conversations\nSET state = 'SCHEDULING_CONFIRM',\n    messages = messages || jsonb_build_array(jsonb_build_object(\n      'doctor_id', $1,\n      'doctor_name', $2,\n      'allSlots', $3::text,\n      'slotOffset', '0'\n    )),\n    updated_at = NOW()\nWHERE clinic_id = $4\n  AND patient_id = $5;",
+        "options": {
+          "queryReplacement": "{{ $('Calcular slots disponíveis').first().json.doctor_id }}, {{ $('Calcular slots disponíveis').first().json.doctor_name }}, {{ JSON.stringify($('Calcular slots disponíveis').first().json.allSlots) }}, {{ $('Calcular slots disponíveis').first().json.clinic_id }}, {{ $('Calcular slots disponíveis').first().json.patient_id }}"
+        }
+      },
+      "id": "d1210bbc-b6bf-477b-8634-3374965680f5",
+      "name": "Atualizar estado (slot)",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.5,
+      "position": [
+        8496,
+        3744
+      ],
+      "credentials": {
+        "postgres": {
+          "id": "hC1ecti2DctPVZwU",
+          "name": "Supabase account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "=http://evolution-api:8080/message/sendText/{{ $('Trigger do workflow principal').first().json.instanceName }}",
+        "authentication": "genericCredentialType",
+        "genericAuthType": "httpHeaderAuth",
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ JSON.stringify({ number: $('Trigger do workflow principal').first().json.fromNumber, text: $('Calcular slots disponíveis').first().json.responseText }) }}",
+        "options": {}
+      },
+      "id": "18e500aa-b890-42f5-93f0-dad02488903a",
+      "name": "Enviar horários",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        8720,
+        3744
+      ],
+      "credentials": {
+        "httpHeaderAuth": {
+          "id": "MOeN9qdxU9au08j3",
+          "name": "Evolution API"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "jsCode": "const data = $('Determinar etapa').first().json;\nconst choice = (data.userChoice || '').trim().toLowerCase();\n\nlet allSlots = [];\nlet currentOffset = 0;\nlet doctorId = '';\nlet doctorName = '';\ntry {\n  const msgs = typeof data.messages === 'string' ? JSON.parse(data.messages) : (data.messages || []);\n  for (const m of msgs) {\n    if (m.allSlots) allSlots = typeof m.allSlots === 'string' ? JSON.parse(m.allSlots) : m.allSlots;\n    if (m.slotOffset !== undefined) currentOffset = parseInt(m.slotOffset); else if (m.slotsPage !== undefined) currentOffset = parseInt(m.slotsPage) * 5;\n    if (m.doctor_id) doctorId = m.doctor_id;\n    if (m.doctor_name) doctorName = m.doctor_name;\n  }\n} catch(e) {}\n\nconst pageSlots = allSlots.slice(currentOffset, currentOffset + 5);\nconst choiceNum = parseInt(choice);\nconst isCancelIntent = choice === '0' || ['cancelar', 'sair', 'voltar'].includes(choice);\nconst hasMoreSlots = allSlots.length > currentOffset + 5;\nconst isNextPage = choiceNum === 6 && hasMoreSlots;\n\nconst currentDayStr = pageSlots.length > 0 ? pageSlots[0].display.split(' às ')[0] : '';\nlet nextDayIndex = -1;\nfor (let i = currentOffset + 5; i < allSlots.length; i++) {\n  if (allSlots[i].display.split(' às ')[0] !== currentDayStr) {\n    nextDayIndex = i;\n    break;\n  }\n}\nconst hasNextDayChoice = nextDayIndex !== -1;\nconst isNextDay = choiceNum === 7 && hasNextDayChoice;\n\nif (isNextPage || isNextDay) {\n  let nextOffset = currentOffset + 5;\n  if (isNextDay) {\n    nextOffset = nextDayIndex;\n  }\n  \n  const nextSlots = allSlots.slice(nextOffset, nextOffset + 5);\n  const hasMoreAfter = allSlots.length > nextOffset + 5;\n  const nextDayStr = nextSlots.length > 0 ? nextSlots[0].display.split(' às ')[0] : '';\n  const hasNextDayAfter = allSlots.findIndex((s, i) => i >= nextOffset + 5 && s.display.split(' às ')[0] !== nextDayStr) !== -1;\n  \n  let moreText = `📅 *Mais horários com ${doctorName}:*\n\n`;\n  nextSlots.forEach((s, i) => { moreText += `${i+1}️⃣ ${s.display}\n`; });\n  if (hasMoreAfter) moreText += `\n➡️ *6* = Ver mais horários`;\n  if (hasNextDayAfter) moreText += `\n⏭️ *7* = Próximo dia`;\n  moreText += `\n0️⃣ Cancelar\n\nDigite o *número* do horário desejado.`;\n  \n  return [{ json: { ...data, wantsMore: true, slotOffset: nextOffset, nextSlotsText: moreText, allSlots, doctor_id: doctorId, doctor_name: doctorName, confirmed: false, cancelled: false, invalidInput: false } }];\n}const selectedSlot = pageSlots[choiceNum - 1] || null;\n\nif (!selectedSlot) {\n  let rePromptText = '';\n  if (!isCancelIntent) {\n    rePromptText = '⚠️ Não entendi. Por favor, envie apenas o *número* do horário:\\n\\n';\n    pageSlots.forEach((s, i) => { rePromptText += `${i+1}️⃣ ${s.display}\\n`; });\n    if (hasMoreSlots) rePromptText += `\\n➡️ *6* = Ver mais horários`;\n    if (hasNextDayChoice) rePromptText += `\\n⏭️ *7* = Próximo dia`;\n    rePromptText += `\\n\\nDigite o *número* desejado, ou *0* para cancelar.`;\n  }\n  return [{ json: { ...data, confirmed: false, cancelled: isCancelIntent, invalidInput: !isCancelIntent, wantsMore: false, rePromptText } }];\n}\n\nreturn [{ json: { ...data, confirmed: true, cancelled: false, wantsMore: false, selectedSlot, doctor_id: doctorId, doctor_name: doctorName } }];"
+      },
+      "id": "b71bdcf8-8df9-4bad-9499-5c8a62b2fa35",
+      "name": "Processar escolha de slot",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        7456,
+        4272
+      ]
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict",
+            "version": 1
+          },
+          "conditions": [
+            {
+              "id": "confirmed-check",
+              "leftValue": "={{ $json.confirmed }}",
+              "rightValue": true,
+              "operator": {
+                "type": "boolean",
+                "operation": "equals"
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "id": "8b1253f7-4132-4f1c-9d21-47314ff151b4",
+      "name": "Slot confirmado?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2,
+      "position": [
+        7904,
+        4288
+      ]
+    },
+    {
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "INSERT INTO public.appointments (clinic_id, patient_id, doctor_id, scheduled_at, status) VALUES ($1, $2, $3, $4, 'scheduled') RETURNING id, scheduled_at;",
+        "options": {
+          "queryReplacement": "{{ $json.clinic_id }}, {{ $json.patient_id }}, {{ $json.doctor_id }}, {{ $json.selectedSlot.start }}"
+        }
+      },
+      "id": "c56ec60b-8e83-41f2-98ab-982e0a5d0c3f",
+      "name": "Confirmar agendamento (scheduled)",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.5,
+      "position": [
+        8112,
+        4272
+      ],
+      "credentials": {
+        "postgres": {
+          "id": "hC1ecti2DctPVZwU",
+          "name": "Supabase account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "UPDATE public.conversations\nSET state = 'MENU', messages = '[]'::jsonb, updated_at = NOW()\nWHERE clinic_id = $1\n  AND patient_id = $2;",
+        "options": {
+          "queryReplacement": "{{ $('Processar escolha de slot').first().json.clinic_id }}, {{ $('Processar escolha de slot').first().json.patient_id }}"
+        }
+      },
+      "id": "867d411c-4a84-4994-8432-e7828b32e4ed",
+      "name": "Voltar para MENU",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.5,
+      "position": [
+        8928,
+        4272
+      ],
+      "credentials": {
+        "postgres": {
+          "id": "hC1ecti2DctPVZwU",
+          "name": "Supabase account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "=http://evolution-api:8080/message/sendText/{{ $('Processar escolha de slot').first().json.instanceName }}",
+        "authentication": "genericCredentialType",
+        "genericAuthType": "httpHeaderAuth",
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ JSON.stringify({ number: $('Processar escolha de slot').first().json.fromNumber, text: 'Consulta agendada com sucesso! ✅\\n\\n📅 ' + $('Processar escolha de slot').first().json.selectedSlot.display + '\\n👨‍⚕️ ' + $('Processar escolha de slot').first().json.doctor_name + '\\n\\nCaso precise reagendar ou cancelar, é só enviar uma mensagem. Até lá! 😊' }) }}",
+        "options": {}
+      },
+      "id": "f2cd0de0-35bd-488f-8d83-77105a5e9037",
+      "name": "Enviar confirmação de agendamento",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        9136,
+        4272
+      ],
+      "credentials": {
+        "httpHeaderAuth": {
+          "id": "MOeN9qdxU9au08j3",
+          "name": "Evolution API"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "UPDATE public.conversations SET state = 'MENU', messages = '[]'::jsonb, updated_at = NOW() WHERE clinic_id = $1 AND patient_id = $2;",
+        "options": {
+          "queryReplacement": "{{ $json.clinic_id }}, {{ $json.patient_id }}"
+        }
+      },
+      "id": "7674529e-e59d-42c9-83a8-30e4c899ad27",
+      "name": "Cancelar agendamento e limpar",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.5,
+      "position": [
+        8928,
+        3904
+      ],
+      "credentials": {
+        "postgres": {
+          "id": "hC1ecti2DctPVZwU",
+          "name": "Supabase account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "=http://evolution-api:8080/message/sendText/{{ $('Trigger do workflow principal').first().json.instanceName }}",
+        "authentication": "genericCredentialType",
+        "genericAuthType": "httpHeaderAuth",
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ JSON.stringify({ number: $('Trigger do workflow principal').first().json.fromNumber, text: 'Agendamento cancelado. Voltei ao menu principal.\\n\\n1️⃣ Agendar consulta\\n2️⃣ Cancelar ou remarcar consulta\\n3️⃣ Tirar dúvidas\\n4️⃣ Consultar valores' }) }}",
+        "options": {}
+      },
+      "id": "328e37dc-b4ec-4e1e-9a16-be7d86bdd806",
+      "name": "Enviar: Agendamento cancelado",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        9136,
+        3904
+      ],
+      "credentials": {
+        "httpHeaderAuth": {
+          "id": "MOeN9qdxU9au08j3",
+          "name": "Evolution API"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict",
+            "version": 1
+          },
+          "conditions": [
+            {
+              "id": "spec-valid",
+              "leftValue": "={{ $json.validChoice }}",
+              "rightValue": true,
+              "operator": {
+                "type": "boolean",
+                "operation": "equals"
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "id": "9a474606-4a3c-4a26-8ac1-a22d2fdaeed2",
+      "name": "Especialidade válida?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2,
+      "position": [
+        7664,
+        3392
+      ]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "=http://evolution-api:8080/message/sendText/{{ $('Trigger do workflow principal').first().json.instanceName }}",
+        "authentication": "genericCredentialType",
+        "genericAuthType": "httpHeaderAuth",
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ JSON.stringify({ number: $('Trigger do workflow principal').first().json.fromNumber, text: $json.rePromptText }) }}",
+        "options": {}
+      },
+      "id": "da8f0b46-24f7-43ec-a4f5-1f2d64a1be68",
+      "name": "Enviar: Especialidade inválida",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        8112,
+        3584
+      ],
+      "credentials": {
+        "httpHeaderAuth": {
+          "id": "MOeN9qdxU9au08j3",
+          "name": "Evolution API"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict",
+            "version": 1
+          },
+          "conditions": [
+            {
+              "id": "doc-valid",
+              "leftValue": "={{ $json.error }}",
+              "rightValue": true,
+              "operator": {
+                "type": "boolean",
+                "operation": "notEquals"
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "id": "5f50c8a0-b025-49ad-befc-f6e5812b37a2",
+      "name": "Médico válido?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2,
+      "position": [
+        7664,
+        3760
+      ]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "=http://evolution-api:8080/message/sendText/{{ $('Trigger do workflow principal').first().json.instanceName }}",
+        "authentication": "genericCredentialType",
+        "genericAuthType": "httpHeaderAuth",
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ JSON.stringify({ number: $('Trigger do workflow principal').first().json.fromNumber, text: $json.rePromptText }) }}",
+        "options": {}
+      },
+      "id": "835ff525-fb69-46d6-86f6-7fd9320bb644",
+      "name": "Enviar: Médico inválido",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        8112,
+        3952
+      ],
+      "credentials": {
+        "httpHeaderAuth": {
+          "id": "MOeN9qdxU9au08j3",
+          "name": "Evolution API"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict",
+            "version": 1
+          },
+          "conditions": [
+            {
+              "id": "cancel-intent",
+              "leftValue": "={{ $json.cancelled }}",
+              "rightValue": true,
+              "operator": {
+                "type": "boolean",
+                "operation": "equals"
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "id": "2ea7458c-6dea-4d13-a220-50bdd7580bcf",
+      "name": "Cancelamento intencional?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2,
+      "position": [
+        8112,
+        4448
+      ]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "=http://evolution-api:8080/message/sendText/{{ $('Trigger do workflow principal').first().json.instanceName }}",
+        "authentication": "genericCredentialType",
+        "genericAuthType": "httpHeaderAuth",
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ JSON.stringify({ number: $('Trigger do workflow principal').first().json.fromNumber, text: $json.rePromptText }) }}",
+        "options": {}
+      },
+      "id": "73bd0ff5-c118-4818-abb2-f8e7f4aeb05d",
+      "name": "Enviar: Slot inválido",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        8304,
+        4464
+      ],
+      "credentials": {
+        "httpHeaderAuth": {
+          "id": "MOeN9qdxU9au08j3",
+          "name": "Evolution API"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict",
+            "version": 1
+          },
+          "conditions": [
+            {
+              "id": "wants-more-check",
+              "leftValue": "={{ $json.wantsMore }}",
+              "rightValue": true,
+              "operator": {
+                "type": "boolean",
+                "operation": "equals"
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "id": "be6c91c7-6db0-4ea7-9f42-6eb6ad001ee8",
+      "name": "Quer ver mais horários?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2,
+      "position": [
+        7664,
+        4272
+      ]
+    },
+    {
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "UPDATE public.conversations\nSET messages = (\n  SELECT jsonb_agg(\n    CASE WHEN (elem->>'slotOffset') IS NOT NULL\n      THEN jsonb_set(elem, '{slotOffset}', to_jsonb($1::text))\n      ELSE elem\n    END\n  )\n  FROM jsonb_array_elements(messages) AS elem\n),\nupdated_at = NOW()\nWHERE clinic_id = $2\n  AND patient_id = $3;",
+        "options": {
+          "queryReplacement": "{{ $json.slotOffset }}, {{ $json.clinic_id }}, {{ $json.patient_id }}"
+        }
+      },
+      "id": "e77660eb-9759-44fe-978c-e1d72288374a",
+      "name": "Atualizar página de slots",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.5,
+      "position": [
+        7904,
+        4112
+      ],
+      "credentials": {
+        "postgres": {
+          "id": "hC1ecti2DctPVZwU",
+          "name": "Supabase account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "=http://evolution-api:8080/message/sendText/{{ $('Processar escolha de slot').first().json.instanceName }}",
+        "authentication": "genericCredentialType",
+        "genericAuthType": "httpHeaderAuth",
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ JSON.stringify({ number: $('Processar escolha de slot').first().json.fromNumber, text: $('Processar escolha de slot').first().json.nextSlotsText }) }}",
+        "options": {}
+      },
+      "id": "002a2400-1376-4d34-801e-81da3f7ddf57",
+      "name": "Enviar: próximos horários",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        8112,
+        4112
+      ],
+      "credentials": {
+        "httpHeaderAuth": {
+          "id": "MOeN9qdxU9au08j3",
+          "name": "Evolution API"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict",
+            "version": 1
+          },
+          "conditions": [
+            {
+              "id": "canc-spec",
+              "leftValue": "={{ $json.cancelled }}",
+              "rightValue": true,
+              "operator": {
+                "type": "boolean",
+                "operation": "equals"
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "id": "193f37b5-7043-4d32-8b66-7f296e127e7f",
+      "name": "Cancelamento na especialidade?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2,
+      "position": [
+        7904,
+        3568
+      ]
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict",
+            "version": 1
+          },
+          "conditions": [
+            {
+              "id": "canc-doc",
+              "leftValue": "={{ $json.cancelled }}",
+              "rightValue": true,
+              "operator": {
+                "type": "boolean",
+                "operation": "equals"
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "id": "70f73f5a-7f63-43ef-a484-ceb775712ca8",
+      "name": "Cancelamento no médico?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2,
+      "position": [
+        7904,
+        3936
+      ]
+    }
+  ],
+  "pinData": {},
+  "connections": {
+    "Trigger do workflow principal": {
+      "main": [
+        [
+          {
+            "node": "Determinar etapa",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Determinar etapa": {
+      "main": [
+        [
+          {
+            "node": "Switch etapa",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Switch etapa": {
+      "main": [
+        [
+          {
+            "node": "Listar especialidades",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Identificar especialidade escolhida",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Identificar médico e buscar horários",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Processar escolha de slot",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Listar especialidades": {
+      "main": [
+        [
+          {
+            "node": "Formatar lista de especialidades",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Formatar lista de especialidades": {
+      "main": [
+        [
+          {
+            "node": "Atualizar estado (especialidade)",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Atualizar estado (especialidade)": {
+      "main": [
+        [
+          {
+            "node": "Enviar especialidades",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Identificar especialidade escolhida": {
+      "main": [
+        [
+          {
+            "node": "Especialidade válida?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Especialidade válida?": {
+      "main": [
+        [
+          {
+            "node": "Listar médicos da especialidade",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Cancelamento na especialidade?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Listar médicos da especialidade": {
+      "main": [
+        [
+          {
+            "node": "Formatar lista de médicos",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Formatar lista de médicos": {
+      "main": [
+        [
+          {
+            "node": "Atualizar estado (médico)",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Atualizar estado (médico)": {
+      "main": [
+        [
+          {
+            "node": "Enviar médicos",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Identificar médico e buscar horários": {
+      "main": [
+        [
+          {
+            "node": "Médico válido?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Médico válido?": {
+      "main": [
+        [
+          {
+            "node": "Buscar Agendamentos DB",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Cancelamento no médico?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Calcular slots disponíveis": {
+      "main": [
+        [
+          {
+            "node": "Atualizar estado (slot)",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Atualizar estado (slot)": {
+      "main": [
+        [
+          {
+            "node": "Enviar horários",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Processar escolha de slot": {
+      "main": [
+        [
+          {
+            "node": "Quer ver mais horários?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Quer ver mais horários?": {
+      "main": [
+        [
+          {
+            "node": "Atualizar página de slots",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Slot confirmado?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Atualizar página de slots": {
+      "main": [
+        [
+          {
+            "node": "Enviar: próximos horários",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Slot confirmado?": {
+      "main": [
+        [
+          {
+            "node": "Confirmar agendamento (scheduled)",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Cancelamento intencional?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Confirmar agendamento (scheduled)": {
+      "main": [
+        [
+          {
+            "node": "Voltar para MENU",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Voltar para MENU": {
+      "main": [
+        [
+          {
+            "node": "Enviar confirmação de agendamento",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Cancelamento intencional?": {
+      "main": [
+        [
+          {
+            "node": "Cancelar agendamento e limpar",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Enviar: Slot inválido",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Cancelar agendamento e limpar": {
+      "main": [
+        [
+          {
+            "node": "Enviar: Agendamento cancelado",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Cancelamento na especialidade?": {
+      "main": [
+        [
+          {
+            "node": "Cancelar agendamento e limpar",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Enviar: Especialidade inválida",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Cancelamento no médico?": {
+      "main": [
+        [
+          {
+            "node": "Cancelar agendamento e limpar",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Enviar: Médico inválido",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Buscar Agendamentos DB": {
+      "main": [
+        [
+          {
+            "node": "Calcular slots disponíveis",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "active": true,
+  "settings": {
+    "executionOrder": "v1",
+    "binaryMode": "separate",
+    "errorWorkflow": "global_error_handler_123"
+  },
+  "versionId": "f71e2dc7-5cb4-4d3c-a9bb-36f0a7d6eb41",
+  "meta": {
+    "templateCredsSetupCompleted": true,
+    "instanceId": "1024d4a0bdb451c88b4bc14d3bfc3a2e5b93aca4588e773c7a54e98c73646ff7"
+  },
+  "nodeGroups": [],
+  "id": "WN4ucTPzQSsOo3QY",
+  "tags": [
+    {
+      "updatedAt": "2026-06-16T16:22:50.929Z",
+      "createdAt": "2026-06-16T16:22:50.929Z",
+      "id": "5uFkXO0qCfYA6nmC",
+      "name": "agendamento"
+    },
+    {
+      "updatedAt": "2026-06-16T16:22:28.171Z",
+      "createdAt": "2026-06-16T16:22:28.171Z",
+      "id": "FO8y1XT6vDqe62Od",
+      "name": "chatbot-clinicas"
+    },
+    {
+      "updatedAt": "2026-06-16T16:22:28.191Z",
+      "createdAt": "2026-06-16T16:22:28.191Z",
+      "id": "xZoY5gTJEcpE0AUB",
+      "name": "sub-workflow"
+    }
+  ]
+}

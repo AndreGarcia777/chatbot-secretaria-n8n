@@ -1,0 +1,980 @@
+{
+  "name": "02 - [SUB] Identificação de Paciente",
+  "nodes": [
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "=http://evolution-api:8080/message/sendText/{{ $json.instanceName }}",
+        "authentication": "genericCredentialType",
+        "genericAuthType": "httpHeaderAuth",
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ JSON.stringify({ number: $json.fromNumber, text: $json.invalidMessage }) }}",
+        "options": {}
+      },
+      "id": "bc9d4014-f858-4f38-9c66-09ce042090c1",
+      "name": "Enviar: Input inválido na verificação",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        2160,
+        1520
+      ],
+      "credentials": {
+        "httpHeaderAuth": {
+          "id": "MOeN9qdxU9au08j3",
+          "name": "Evolution API"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "=http://evolution-api:8080/message/sendText/{{ $json.instanceName }}",
+        "authentication": "genericCredentialType",
+        "genericAuthType": "httpHeaderAuth",
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ JSON.stringify({ number: $json.fromNumber, text: $json.errorMsg }) }}",
+        "options": {}
+      },
+      "id": "5478266b-a72d-4b6a-ae25-df13e94a80cd",
+      "name": "Enviar: CPF inválido, tentar novamente",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        2544,
+        1520
+      ],
+      "credentials": {
+        "httpHeaderAuth": {
+          "id": "MOeN9qdxU9au08j3",
+          "name": "Evolution API"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "=http://evolution-api:8080/message/sendText/{{ $('Trigger do workflow principal').first().json.instanceName }}",
+        "authentication": "genericCredentialType",
+        "genericAuthType": "httpHeaderAuth",
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ JSON.stringify({ number: $('Trigger do workflow principal').first().json.fromNumber, text: 'Cadastro realizado com sucesso! ✅\\n\\nBem-vindo(a), ' + $('Criar paciente').first().json.name + '!\\n\\nComo posso ajudar?\\n\\n1️⃣ Agendar consulta\\n2️⃣ Cancelar ou remarcar consulta\\n3️⃣ Tirar dúvidas\\n4️⃣ Consultar valores' }) }}",
+        "options": {}
+      },
+      "id": "7da02bc7-7592-4297-b34e-994fac9d421f",
+      "name": "Enviar: Cadastro completo + menu",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        2912,
+        1328
+      ],
+      "credentials": {
+        "httpHeaderAuth": {
+          "id": "MOeN9qdxU9au08j3",
+          "name": "Evolution API"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "-- Remove conversa temporária usando whatsapp_number\nDELETE FROM public.conversations\nWHERE clinic_id = $1\n  AND whatsapp_number = $2\n  AND patient_id IS NULL;\n\n-- Upsert conversa do paciente (cria ou reseta se já existir)\nINSERT INTO public.conversations (clinic_id, patient_id, whatsapp_number, state, messages, updated_at)\nVALUES (\n  $3::uuid,\n  $4::uuid,\n  $5,\n  'MENU',\n  '[]'::jsonb,\n  NOW()\n)\nON CONFLICT (clinic_id, patient_id)\nDO UPDATE SET state = 'MENU', messages = '[]'::jsonb, updated_at = NOW()\nRETURNING id, patient_id, state;",
+        "options": {
+          "queryReplacement": "{{ $('Trigger do workflow principal').first().json.clinic_id }}, {{ $('Trigger do workflow principal').first().json.fromNumber }}, {{ $('Trigger do workflow principal').first().json.clinic_id }}, {{ $json.id }}, {{ $('Trigger do workflow principal').first().json.fromNumber }}"
+        }
+      },
+      "id": "ef4773e1-862b-40f3-90a3-a6e1bc70847b",
+      "name": "Vincular paciente à conversa",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.5,
+      "position": [
+        2736,
+        1328
+      ],
+      "credentials": {
+        "postgres": {
+          "id": "hC1ecti2DctPVZwU",
+          "name": "Supabase account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "INSERT INTO public.patients (clinic_id, whatsapp_number, name, insurance, cpf_last4)\nVALUES (\n  $1::uuid,\n  $2,\n  $3,\n  $4,\n  $5\n)\nRETURNING id, name;",
+        "options": {
+          "queryReplacement": "{{ $json.clinic_id }}, {{ $json.fromNumber }}, {{ $json.collected_name }}, {{ $json.collected_insurance }}, {{ $json.cpf_last4 }}"
+        }
+      },
+      "id": "bdaf6567-584d-4f2b-9ede-1136f7fe746f",
+      "name": "Criar paciente",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.5,
+      "position": [
+        2544,
+        1328
+      ],
+      "credentials": {
+        "postgres": {
+          "id": "hC1ecti2DctPVZwU",
+          "name": "Supabase account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict",
+            "version": 1
+          },
+          "conditions": [
+            {
+              "id": "cpf-valid",
+              "leftValue": "={{ $json.validCpf }}",
+              "rightValue": true,
+              "operator": {
+                "type": "boolean",
+                "operation": "equals"
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "id": "7749a46d-b346-45b4-840d-3cef486ef838",
+      "name": "CPF válido?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2,
+      "position": [
+        2352,
+        1344
+      ]
+    },
+    {
+      "parameters": {
+        "jsCode": "// Coleta CPF last4 e cria o paciente\nconst data = $input.first().json;\nconst cpfLast4 = data.messageText.trim().replace(/\\D/g, '');\n\nif (cpfLast4.length !== 4) {\n  return [{\n    json: {\n      ...data,\n      validCpf: false,\n      errorMsg: 'Por favor, envie exatamente os *4 últimos dígitos* do seu CPF (apenas números).'\n    }\n  }];\n}\n\n// Recupera dados coletados da conversa\nlet collectedName = '';\nlet collectedInsurance = '';\ntry {\n  const msgs = typeof data.messages === 'string' ? JSON.parse(data.messages) : (data.messages || []);\n  for (const m of msgs) {\n    if (m.collected_name) collectedName = m.collected_name;\n    if (m.collected_insurance) collectedInsurance = m.collected_insurance;\n  }\n} catch(e) {}\n\nreturn [{\n  json: {\n    ...data,\n    validCpf: true,\n    cpf_last4: cpfLast4,\n    collected_name: collectedName,\n    collected_insurance: collectedInsurance\n  }\n}];"
+      },
+      "id": "6517ad3d-dda3-4d34-a01a-c62b40089203",
+      "name": "Validar CPF e recuperar dados",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        2160,
+        1344
+      ]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "=http://evolution-api:8080/message/sendText/{{ $('Trigger do workflow principal').first().json.instanceName }}",
+        "authentication": "genericCredentialType",
+        "genericAuthType": "httpHeaderAuth",
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={\n  \"number\": \"{{ $('Trigger do workflow principal').first().json.fromNumber }}\",\n  \"text\": \"Agora, para sua segurança, informe os *4 últimos dígitos do seu CPF*.\"\n}",
+        "options": {}
+      },
+      "id": "86d644c6-bc62-42a4-858f-5d3ab11e3260",
+      "name": "Enviar: Pedir CPF",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        2544,
+        1184
+      ],
+      "credentials": {
+        "httpHeaderAuth": {
+          "id": "MOeN9qdxU9au08j3",
+          "name": "Evolution API"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "UPDATE public.conversations\nSET state = 'IDENTIFICATION_COLLECT_CPF',\n    messages = messages || jsonb_build_array(jsonb_build_object('collected_insurance', $1)),\n    updated_at = NOW()\nWHERE clinic_id = $2\n  AND whatsapp_number = $3\n  AND patient_id IS NULL;",
+        "options": {
+          "queryReplacement": "{{ $json.collected_insurance }}, {{ $json.clinic_id }}, {{ $json.fromNumber }}"
+        }
+      },
+      "id": "b6e360f9-3d14-410b-bbd7-ca0791856bd8",
+      "name": "Estado → COLLECT_CPF",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.5,
+      "position": [
+        2352,
+        1184
+      ],
+      "credentials": {
+        "postgres": {
+          "id": "hC1ecti2DctPVZwU",
+          "name": "Supabase account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "jsCode": "// Salva convênio e pede CPF\nconst data = $input.first().json;\nconst insurance = data.messageText.trim();\n\nreturn [{\n  json: {\n    ...data,\n    collected_insurance: insurance\n  }\n}];"
+      },
+      "id": "71210cd3-b43f-4e35-a8c3-56cd9b159a72",
+      "name": "Salvar convênio",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        2160,
+        1184
+      ]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "=http://evolution-api:8080/message/sendText/{{ $('Trigger do workflow principal').first().json.instanceName }}",
+        "authentication": "genericCredentialType",
+        "genericAuthType": "httpHeaderAuth",
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ JSON.stringify({ number: $('Trigger do workflow principal').first().json.fromNumber, text: 'Obrigada, ' + $('Salvar nome coletado').first().json.collected_name + '! 😊\\n\\nQual é o seu *convênio*?\\n\\nConvênios aceitos: ' + ($('Trigger do workflow principal').first().json.clinic_insurances ? $('Trigger do workflow principal').first().json.clinic_insurances.join(', ') : 'Particular') + '\\n\\nSe não tiver convênio, digite *particular*.' }) }}",
+        "options": {}
+      },
+      "id": "6de84e19-c19c-4f58-be86-519bcfcba943",
+      "name": "Enviar: Pedir convênio",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        2544,
+        1008
+      ],
+      "credentials": {
+        "httpHeaderAuth": {
+          "id": "MOeN9qdxU9au08j3",
+          "name": "Evolution API"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "UPDATE public.conversations\nSET state = 'IDENTIFICATION_COLLECT_INSURANCE',\n    messages = jsonb_build_array(jsonb_build_object('collected_name', $1)),\n    updated_at = NOW()\nWHERE clinic_id = $2\n  AND whatsapp_number = $3\n  AND patient_id IS NULL;",
+        "options": {
+          "queryReplacement": "{{ $json.collected_name }}, {{ $json.clinic_id }}, {{ $json.fromNumber }}"
+        }
+      },
+      "id": "d8a432a3-8154-4171-b790-8f379f0e87d0",
+      "name": "Estado → COLLECT_INSURANCE",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.5,
+      "position": [
+        2352,
+        1008
+      ],
+      "credentials": {
+        "postgres": {
+          "id": "hC1ecti2DctPVZwU",
+          "name": "Supabase account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "jsCode": "// Salva nome temporariamente no messages da conversa\nconst data = $input.first().json;\nconst name = data.messageText.trim();\n\nreturn [{\n  json: {\n    ...data,\n    collected_name: name\n  }\n}];"
+      },
+      "id": "6e5db254-c48d-4d26-929c-de0373e31864",
+      "name": "Salvar nome coletado",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        2160,
+        1008
+      ]
+    },
+    {
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "UPDATE public.conversations\nSET state = 'IDENTIFICATION_COLLECT_NAME', updated_at = NOW()\nWHERE clinic_id = $1\n  AND whatsapp_number = $2\n  AND patient_id IS NULL;",
+        "options": {
+          "queryReplacement": "{{ $('Trigger do workflow principal').first().json.clinic_id }}, {{ $('Trigger do workflow principal').first().json.fromNumber }}"
+        }
+      },
+      "id": "ddaed722-21ab-4fa7-bc14-68cde115d4d4",
+      "name": "Estado → COLLECT_NAME",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.5,
+      "position": [
+        2352,
+        832
+      ],
+      "credentials": {
+        "postgres": {
+          "id": "hC1ecti2DctPVZwU",
+          "name": "Supabase account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "=http://evolution-api:8080/message/sendText/{{ $json.instanceName }}",
+        "authentication": "genericCredentialType",
+        "genericAuthType": "httpHeaderAuth",
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={\n  \"number\": \"{{ $json.fromNumber }}\",\n  \"text\": \"Vamos fazer seu cadastro! 📋\\nPor favor, me diga seu *nome completo*.\"\n}",
+        "options": {}
+      },
+      "id": "4de7d6ea-95bb-4b9e-9681-7088211f641a",
+      "name": "Enviar: Pedir nome",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        2160,
+        832
+      ],
+      "credentials": {
+        "httpHeaderAuth": {
+          "id": "MOeN9qdxU9au08j3",
+          "name": "Evolution API"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "UPDATE public.conversations\nSET state = 'IDENTIFICATION_COLLECT_NAME', updated_at = NOW()\nWHERE clinic_id = $1\n  AND whatsapp_number = $2\n  AND patient_id IS NULL;",
+        "options": {
+          "queryReplacement": "{{ $('Trigger do workflow principal').first().json.clinic_id }}, {{ $('Trigger do workflow principal').first().json.fromNumber }}"
+        }
+      },
+      "id": "f718e6b1-bb0d-47f8-ab1f-34e7cdbb556e",
+      "name": "Estado → COLLECT_NAME (não encontrado)",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.5,
+      "position": [
+        2736,
+        656
+      ],
+      "credentials": {
+        "postgres": {
+          "id": "hC1ecti2DctPVZwU",
+          "name": "Supabase account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "=http://evolution-api:8080/message/sendText/{{ $('Trigger do workflow principal').first().json.instanceName }}",
+        "authentication": "genericCredentialType",
+        "genericAuthType": "httpHeaderAuth",
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={\n  \"number\": \"{{ $('Trigger do workflow principal').first().json.fromNumber }}\",\n  \"text\": \"Não encontrei um cadastro com esses dados. 🤔\\n\\nVamos fazer seu cadastro! Por favor, me diga seu *nome completo*.\"\n}",
+        "options": {}
+      },
+      "id": "1151c397-eddb-4751-91ce-b855a55057ae",
+      "name": "Enviar: Não encontrado, iniciar cadastro",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        2544,
+        656
+      ],
+      "credentials": {
+        "httpHeaderAuth": {
+          "id": "MOeN9qdxU9au08j3",
+          "name": "Evolution API"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "=http://evolution-api:8080/message/sendText/{{ $('Trigger do workflow principal').first().json.instanceName }}",
+        "authentication": "genericCredentialType",
+        "genericAuthType": "httpHeaderAuth",
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ JSON.stringify({ number: $('Trigger do workflow principal').first().json.fromNumber, text: 'Encontrei seu cadastro! ✅ Bem-vindo(a) de volta, ' + $('Buscar por CPF/nascimento').first().json.name + '.\\n\\nSeu número foi atualizado. Como posso ajudar?\\n\\n1️⃣ Agendar consulta\\n2️⃣ Cancelar ou remarcar consulta\\n3️⃣ Tirar dúvidas\\n4️⃣ Consultar valores' }) }}",
+        "options": {}
+      },
+      "id": "8d0c70e7-e3bc-4c4b-b32b-aa454f6793ac",
+      "name": "Enviar: Paciente identificado + menu",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        2928,
+        464
+      ],
+      "credentials": {
+        "httpHeaderAuth": {
+          "id": "MOeN9qdxU9au08j3",
+          "name": "Evolution API"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "INSERT INTO public.conversations (clinic_id, patient_id, messages, state, updated_at)\nVALUES (\n  $1::uuid,\n  $2::uuid,\n  '[]'::jsonb,\n  'MENU',\n  NOW()\n)\nON CONFLICT (clinic_id, patient_id) DO UPDATE\nSET state = 'MENU', updated_at = NOW();",
+        "options": {
+          "queryReplacement": "{{ $('Trigger do workflow principal').first().json.clinic_id }}, {{ $json.id }}"
+        }
+      },
+      "id": "0a7b4867-7542-438a-8075-d7b2d55e9dee",
+      "name": "Criar conversa (paciente existente)",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.5,
+      "position": [
+        2736,
+        464
+      ],
+      "credentials": {
+        "postgres": {
+          "id": "hC1ecti2DctPVZwU",
+          "name": "Supabase account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "UPDATE public.patients\nSET whatsapp_number = $1\nWHERE id = $2\n  AND clinic_id = $3;",
+        "options": {
+          "queryReplacement": "{{ $('Trigger do workflow principal').first().json.fromNumber }}, {{ $json.id }}, {{ $('Trigger do workflow principal').first().json.clinic_id }}"
+        }
+      },
+      "id": "77dd41dd-2a7e-4369-9091-d2b79b3ab13c",
+      "name": "Atualizar WhatsApp do paciente",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.5,
+      "position": [
+        2544,
+        464
+      ],
+      "credentials": {
+        "postgres": {
+          "id": "hC1ecti2DctPVZwU",
+          "name": "Supabase account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict",
+            "version": 1
+          },
+          "conditions": [
+            {
+              "id": "found-check",
+              "leftValue": "={{ $json.id }}",
+              "rightValue": "",
+              "operator": {
+                "type": "string",
+                "operation": "exists",
+                "singleValue": true
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "id": "b12b6c8b-738e-48b9-85b6-8288a916725a",
+      "name": "Paciente encontrado?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2,
+      "position": [
+        2352,
+        640
+      ]
+    },
+    {
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "SELECT id, name, whatsapp_number, insurance\nFROM public.patients\nWHERE clinic_id = $1\n  AND (\n    cpf_last4 = $2\n    OR TO_CHAR(birth_date, 'DD/MM/YYYY') = $3\n    OR TO_CHAR(birth_date, 'DDMMYYYY') = $4\n  )\nLIMIT 1;",
+        "options": {
+          "queryReplacement": "{{ $json.clinic_id }}, {{ $json.cleanedInput }}, {{ $json.cleanedInput }}, {{ $json.cleanedInput.replace(/\\//g, \"\") }}"
+        }
+      },
+      "id": "7a33bb89-cd18-4b40-8396-088e2b1e38cf",
+      "name": "Buscar por CPF/nascimento",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.5,
+      "position": [
+        2160,
+        640
+      ],
+      "alwaysOutputData": true,
+      "credentials": {
+        "postgres": {
+          "id": "hC1ecti2DctPVZwU",
+          "name": "Supabase account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "rules": {
+          "values": [
+            {
+              "conditions": {
+                "options": {
+                  "caseSensitive": true,
+                  "leftValue": "",
+                  "typeValidation": "strict",
+                  "version": 1
+                },
+                "conditions": [
+                  {
+                    "id": "rule-verify",
+                    "leftValue": "={{ $json.action }}",
+                    "rightValue": "VERIFY_IDENTITY",
+                    "operator": {
+                      "type": "string",
+                      "operation": "equals"
+                    }
+                  }
+                ],
+                "combinator": "and"
+              },
+              "renameOutput": true,
+              "outputKey": "VERIFY_IDENTITY"
+            },
+            {
+              "conditions": {
+                "options": {
+                  "caseSensitive": true,
+                  "leftValue": "",
+                  "typeValidation": "strict",
+                  "version": 1
+                },
+                "conditions": [
+                  {
+                    "id": "rule-new",
+                    "leftValue": "={{ $json.action }}",
+                    "rightValue": "NEW_PATIENT",
+                    "operator": {
+                      "type": "string",
+                      "operation": "equals"
+                    }
+                  }
+                ],
+                "combinator": "and"
+              },
+              "renameOutput": true,
+              "outputKey": "NEW_PATIENT"
+            },
+            {
+              "conditions": {
+                "options": {
+                  "caseSensitive": true,
+                  "leftValue": "",
+                  "typeValidation": "strict",
+                  "version": 1
+                },
+                "conditions": [
+                  {
+                    "id": "rule-name",
+                    "leftValue": "={{ $json.action }}",
+                    "rightValue": "COLLECT_NAME",
+                    "operator": {
+                      "type": "string",
+                      "operation": "equals"
+                    }
+                  }
+                ],
+                "combinator": "and"
+              },
+              "renameOutput": true,
+              "outputKey": "COLLECT_NAME"
+            },
+            {
+              "conditions": {
+                "options": {
+                  "caseSensitive": true,
+                  "leftValue": "",
+                  "typeValidation": "strict",
+                  "version": 1
+                },
+                "conditions": [
+                  {
+                    "id": "rule-insurance",
+                    "leftValue": "={{ $json.action }}",
+                    "rightValue": "COLLECT_INSURANCE",
+                    "operator": {
+                      "type": "string",
+                      "operation": "equals"
+                    }
+                  }
+                ],
+                "combinator": "and"
+              },
+              "renameOutput": true,
+              "outputKey": "COLLECT_INSURANCE"
+            },
+            {
+              "conditions": {
+                "options": {
+                  "caseSensitive": true,
+                  "leftValue": "",
+                  "typeValidation": "strict",
+                  "version": 1
+                },
+                "conditions": [
+                  {
+                    "id": "rule-cpf",
+                    "leftValue": "={{ $json.action }}",
+                    "rightValue": "COLLECT_CPF",
+                    "operator": {
+                      "type": "string",
+                      "operation": "equals"
+                    }
+                  }
+                ],
+                "combinator": "and"
+              },
+              "renameOutput": true,
+              "outputKey": "COLLECT_CPF"
+            },
+            {
+              "conditions": {
+                "options": {
+                  "caseSensitive": true,
+                  "leftValue": "",
+                  "typeValidation": "strict",
+                  "version": 1
+                },
+                "conditions": [
+                  {
+                    "id": "rule-invalid",
+                    "leftValue": "={{ $json.action }}",
+                    "rightValue": "INVALID_INPUT",
+                    "operator": {
+                      "type": "string",
+                      "operation": "equals"
+                    }
+                  }
+                ],
+                "combinator": "and"
+              },
+              "renameOutput": true,
+              "outputKey": "INVALID_INPUT"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "id": "7fcef299-4abe-4ed3-b8a8-49d62cd04aa8",
+      "name": "Switch ação",
+      "type": "n8n-nodes-base.switch",
+      "typeVersion": 3,
+      "position": [
+        1888,
+        960
+      ]
+    },
+    {
+      "parameters": {
+        "jsCode": "// Recebe dados do workflow principal\nconst data = $input.first().json;\nconst state = data.conversation_state;\nconst messageText = (data.messageText || '').trim();\nconst messageTextLower = messageText.toLowerCase();\n// Remove pontuação (ex: 'Novo!' → 'novo')\nconst messageClean = messageTextLower.replace(/[^\\w\\sàáâãéêíóôõúçÀÁÂÃÉÊÍÓÔÕÚÇ]/gi, '').trim();\n\nlet action = 'unknown';\nlet cleanedInput = messageText;\nlet invalidMessage = '';\n\nif (state === 'IDENTIFICATION_ASK') {\n  const newPatientKeywords = ['novo', 'nova', 'nao', 'não', 'primeira vez', 'new'];\n\n  if (newPatientKeywords.includes(messageClean)) {\n    action = 'NEW_PATIENT';\n  } else {\n    const digitsOnly = messageTextLower.replace(/\\D/g, '');\n    const isCpfLast4 = /^\\d{3}-?\\d{1}$/.test(messageText.trim()) || /^\\d{4}$/.test(digitsOnly);\n    const isDate = /^\\d{2}\\/\\d{2}\\/\\d{4}$/.test(messageText.trim()) || /^\\d{8}$/.test(digitsOnly);\n\n    if (isCpfLast4 && digitsOnly.length === 4) {\n      action = 'VERIFY_IDENTITY';\n      cleanedInput = digitsOnly;\n    } else if (isDate) {\n      action = 'VERIFY_IDENTITY';\n      cleanedInput = messageText.trim();\n    } else {\n      action = 'INVALID_INPUT';\n      invalidMessage = 'Não entendi sua resposta. 🤔\\n\\nPor favor, envie:\\n\\n✅ Os *4 últimos dígitos* do seu CPF (ex: 1234)\\n✅ Sua *data de nascimento* (ex: 15/03/1985)\\n🆕 Ou digite *novo* se é sua primeira vez';\n    }\n  }\n} else if (state === 'IDENTIFICATION_COLLECT_NAME') {\n  // Nome deve ter pelo menos 2 letras\n  const hasLetters = /[a-zA-ZàáâãéêíóôõúçÀÁÂÃÉÊÍÓÔÕÚÇ]{2,}/.test(messageText);\n  if (hasLetters && messageText.length >= 2) {\n    action = 'COLLECT_NAME';\n  } else {\n    action = 'INVALID_INPUT';\n    invalidMessage = 'Por favor, digite seu *nome completo* (ex: Maria da Silva). 📝';\n  }\n} else if (state === 'IDENTIFICATION_COLLECT_INSURANCE') {\n  // Convênio deve ter pelo menos 2 caracteres com letras\n  const hasLetters = /[a-zA-ZàáâãéêíóôõúçÀÁÂÃÉÊÍÓÔÕÚÇ]/.test(messageText);\n  if (hasLetters && messageText.length >= 2) {\n    action = 'COLLECT_INSURANCE';\n  } else {\n    action = 'INVALID_INPUT';\n    invalidMessage = 'Por favor, informe o nome do seu *convênio* (ex: Unimed, SulAmérica) ou digite *particular* se não tiver. 🏥';\n  }\n} else if (state === 'IDENTIFICATION_COLLECT_CPF') {\n  action = 'COLLECT_CPF';\n}\n\nreturn [{\n  json: {\n    ...data,\n    action,\n    cleanedInput,\n    invalidMessage\n  }\n}];"
+      },
+      "id": "ad4e86cf-2c25-4ee4-92fd-c90bdadb9083",
+      "name": "Determinar ação",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        1648,
+        1024
+      ]
+    },
+    {
+      "parameters": {
+        "inputSource": "passthrough"
+      },
+      "id": "5c7c07b7-dcee-42bd-97ee-72252c1f4e7c",
+      "name": "Trigger do workflow principal",
+      "type": "n8n-nodes-base.executeWorkflowTrigger",
+      "typeVersion": 1.1,
+      "position": [
+        1408,
+        1024
+      ]
+    }
+  ],
+  "pinData": {},
+  "connections": {
+    "Vincular paciente à conversa": {
+      "main": [
+        [
+          {
+            "node": "Enviar: Cadastro completo + menu",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Criar paciente": {
+      "main": [
+        [
+          {
+            "node": "Vincular paciente à conversa",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "CPF válido?": {
+      "main": [
+        [
+          {
+            "node": "Criar paciente",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Enviar: CPF inválido, tentar novamente",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Validar CPF e recuperar dados": {
+      "main": [
+        [
+          {
+            "node": "CPF válido?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Estado → COLLECT_CPF": {
+      "main": [
+        [
+          {
+            "node": "Enviar: Pedir CPF",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Salvar convênio": {
+      "main": [
+        [
+          {
+            "node": "Estado → COLLECT_CPF",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Estado → COLLECT_INSURANCE": {
+      "main": [
+        [
+          {
+            "node": "Enviar: Pedir convênio",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Salvar nome coletado": {
+      "main": [
+        [
+          {
+            "node": "Estado → COLLECT_INSURANCE",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Enviar: Pedir nome": {
+      "main": [
+        [
+          {
+            "node": "Estado → COLLECT_NAME",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Enviar: Não encontrado, iniciar cadastro": {
+      "main": [
+        [
+          {
+            "node": "Estado → COLLECT_NAME (não encontrado)",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Criar conversa (paciente existente)": {
+      "main": [
+        [
+          {
+            "node": "Enviar: Paciente identificado + menu",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Atualizar WhatsApp do paciente": {
+      "main": [
+        [
+          {
+            "node": "Criar conversa (paciente existente)",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Paciente encontrado?": {
+      "main": [
+        [
+          {
+            "node": "Atualizar WhatsApp do paciente",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Enviar: Não encontrado, iniciar cadastro",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Buscar por CPF/nascimento": {
+      "main": [
+        [
+          {
+            "node": "Paciente encontrado?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Switch ação": {
+      "main": [
+        [
+          {
+            "node": "Buscar por CPF/nascimento",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Enviar: Pedir nome",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Salvar nome coletado",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Salvar convênio",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Validar CPF e recuperar dados",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Enviar: Input inválido na verificação",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Determinar ação": {
+      "main": [
+        [
+          {
+            "node": "Switch ação",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Trigger do workflow principal": {
+      "main": [
+        [
+          {
+            "node": "Determinar ação",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "active": true,
+  "settings": {
+    "executionOrder": "v1",
+    "binaryMode": "separate",
+    "errorWorkflow": "global_error_handler_123"
+  },
+  "versionId": "e8e7946b-262f-45bf-bde8-5c0915e6f56f",
+  "meta": {
+    "templateCredsSetupCompleted": true,
+    "instanceId": "1024d4a0bdb451c88b4bc14d3bfc3a2e5b93aca4588e773c7a54e98c73646ff7"
+  },
+  "nodeGroups": [],
+  "id": "X1hxytGsfgLtJBS1",
+  "tags": [
+    {
+      "updatedAt": "2026-06-16T16:22:28.171Z",
+      "createdAt": "2026-06-16T16:22:28.171Z",
+      "id": "FO8y1XT6vDqe62Od",
+      "name": "chatbot-clinicas"
+    },
+    {
+      "updatedAt": "2026-06-16T16:22:28.191Z",
+      "createdAt": "2026-06-16T16:22:28.191Z",
+      "id": "xZoY5gTJEcpE0AUB",
+      "name": "sub-workflow"
+    }
+  ]
+}

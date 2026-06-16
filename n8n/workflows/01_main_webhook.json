@@ -1,0 +1,1770 @@
+{
+  "name": "01 - [WEBHOOK] Entrada Principal - Evolution API",
+  "nodes": [
+    {
+      "parameters": {
+        "httpMethod": "POST",
+        "path": "webhook/clinic",
+        "options": {
+          "rawBody": false
+        }
+      },
+      "id": "3106346f-dbf2-44c8-b812-8d3214062792",
+      "name": "Webhook Evolution API",
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 2,
+      "position": [
+        -12384,
+        2576
+      ],
+      "webhookId": "clinic-entry"
+    },
+    {
+      "parameters": {
+        "jsCode": "// Extrai dados do payload da Evolution API\nconst body = $input.first().json.body || $input.first().json;\n\n// Evolution API payload structure\nconst event = body.event || '';\nconst instanceName = body.instance || '';\n\n// Ignora eventos que não são mensagens recebidas\nif (event !== 'messages.upsert') {\n  return [{ json: { ignore: true } }];\n}\n\nconst data = body.data || {};\nconst key = data.key || {};\n\n// Ignora mensagens enviadas pelo próprio bot\nif (key.fromMe === true) {\n  return [{ json: { ignore: true } }];\n}\n\n// Extrai número do remetente (remove @s.whatsapp.net)\nconst remoteJid = key.remoteJid || '';\nconst fromNumber = remoteJid.replace('@s.whatsapp.net', '').replace('@c.us', '');\n\n// Extrai texto da mensagem\nconst message = data.message || {};\nconst messageText = message.conversation \n  || message.extendedTextMessage?.text \n  || message.buttonsResponseMessage?.selectedDisplayText\n  || message.listResponseMessage?.singleSelectReply?.selectedRowId\n  || '';\n\nconst pushName = data.pushName || '';\nconst messageTimestamp = data.messageTimestamp || Math.floor(Date.now() / 1000);\n\nreturn [{\n  json: {\n    ignore: false,\n    instanceName,\n    fromNumber,\n    messageText: messageText.trim(),\n    pushName,\n    messageTimestamp,\n    rawEvent: event\n  }\n}];"
+      },
+      "id": "1b64d34a-f276-46ee-86b2-40fa8c660036",
+      "name": "Extrair dados da mensagem",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        -12144,
+        2576
+      ]
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict",
+            "version": 1
+          },
+          "conditions": [
+            {
+              "id": "ignore-check",
+              "leftValue": "={{ $json.ignore }}",
+              "rightValue": true,
+              "operator": {
+                "type": "boolean",
+                "operation": "equals"
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "id": "4414e6e2-1029-4eaa-9a29-8f50adcaf289",
+      "name": "Ignorar evento?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2,
+      "position": [
+        -11936,
+        2576
+      ]
+    },
+    {
+      "parameters": {},
+      "id": "f2b40d34-6d52-48d7-821c-792c7c2451eb",
+      "name": "Evento ignorado",
+      "type": "n8n-nodes-base.noOp",
+      "typeVersion": 1,
+      "position": [
+        -11712,
+        2560
+      ]
+    },
+    {
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "SELECT id, name, whatsapp_number, address, business_hours,\n       accepted_insurances, bot_prompt, human_agent_number\nFROM public.clinics\nLIMIT 1",
+        "options": {}
+      },
+      "id": "af3d99f0-1c93-44bf-a450-8a5c17c76e42",
+      "name": "Buscar clínica por instância",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.5,
+      "position": [
+        -11712,
+        2704
+      ],
+      "alwaysOutputData": true,
+      "credentials": {
+        "postgres": {
+          "id": "hC1ecti2DctPVZwU",
+          "name": "Supabase account"
+        }
+      },
+      "notes": "IMPORTANTE: Ajustar a query para mapear instanceName → clinic_id. Opções:\n1. Adicionar coluna 'evolution_instance' na tabela clinics\n2. Usar uma tabela de mapeamento\n3. Usar o whatsapp_number da instância Evolution"
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict",
+            "version": 1
+          },
+          "conditions": [
+            {
+              "id": "clinic-check",
+              "leftValue": "={{ $json.id }}",
+              "rightValue": "",
+              "operator": {
+                "type": "string",
+                "operation": "exists",
+                "singleValue": true
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "id": "008d164e-22d5-4a69-b56b-c5c967b4959c",
+      "name": "Clínica encontrada?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2,
+      "position": [
+        -11504,
+        2704
+      ]
+    },
+    {
+      "parameters": {},
+      "id": "61ea8a94-19ae-4142-92ac-51b9cf9b7580",
+      "name": "Clínica não encontrada - ignorar",
+      "type": "n8n-nodes-base.noOp",
+      "typeVersion": 1,
+      "position": [
+        -11232,
+        2880
+      ]
+    },
+    {
+      "parameters": {
+        "jsCode": "// Merge dados extraídos da mensagem com dados da clínica\nconst msgData = $('Extrair dados da mensagem').first().json;\nconst clinicData = $('Buscar clínica por instância').first().json;\n\nreturn [{\n  json: {\n    // Dados da mensagem\n    fromNumber: msgData.fromNumber,\n    messageText: msgData.messageText,\n    pushName: msgData.pushName,\n    instanceName: msgData.instanceName,\n    messageTimestamp: msgData.messageTimestamp,\n    // Dados da clínica\n    clinic_id: clinicData.id,\n    clinic_name: clinicData.name,\n    clinic_whatsapp: clinicData.whatsapp_number,\n    clinic_address: clinicData.address,\n    clinic_hours: clinicData.business_hours,\n    clinic_insurances: clinicData.accepted_insurances,\n    bot_prompt: clinicData.bot_prompt,\n    human_agent_number: clinicData.human_agent_number\n  }\n}];"
+      },
+      "id": "048ec898-5dfd-45f2-a6ba-1c727a635cd9",
+      "name": "Montar contexto",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        -11232,
+        2688
+      ]
+    },
+    {
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "SELECT id, clinic_id, whatsapp_number, name, insurance, cpf_last4, birth_date\nFROM public.patients\nWHERE clinic_id = $1\n  AND whatsapp_number = $2\nLIMIT 1;",
+        "options": {
+          "queryReplacement": "{{ $json.clinic_id }}, {{ $json.fromNumber }}"
+        }
+      },
+      "id": "207a326f-1fa3-4207-a8a3-0b528551fd77",
+      "name": "Buscar paciente",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.5,
+      "position": [
+        -10816,
+        2704
+      ],
+      "alwaysOutputData": true,
+      "credentials": {
+        "postgres": {
+          "id": "hC1ecti2DctPVZwU",
+          "name": "Supabase account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict",
+            "version": 1
+          },
+          "conditions": [
+            {
+              "id": "patient-check",
+              "leftValue": "={{ $json.id }}",
+              "rightValue": "",
+              "operator": {
+                "type": "string",
+                "operation": "exists",
+                "singleValue": true
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "id": "293a81ae-b985-4821-a9fd-73d2346e18ed",
+      "name": "Paciente encontrado?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2,
+      "position": [
+        -10576,
+        2704
+      ]
+    },
+    {
+      "parameters": {
+        "jsCode": "// Paciente NÃO encontrado — criar conversa com estado IDENTIFICATION_ASK\nconst ctx = $('Montar contexto').first().json;\n\nreturn [{\n  json: {\n    ...ctx,\n    patient_id: null,\n    patient_name: ctx.pushName || 'paciente',\n    conversation_state: 'IDENTIFICATION_ASK'\n  }\n}];"
+      },
+      "id": "98f661d6-9827-48f5-8e1f-c09b121eedb6",
+      "name": "Preparar novo contato",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        -10320,
+        3328
+      ]
+    },
+    {
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "INSERT INTO public.conversations (clinic_id, patient_id, whatsapp_number, messages, state, updated_at)\nVALUES (\n  $1::uuid,\n  NULL,\n  $2,\n  '[]'::jsonb,\n  'IDENTIFICATION_ASK',\n  NOW()\n)\nON CONFLICT (clinic_id, whatsapp_number) WHERE patient_id IS NULL\nDO UPDATE SET updated_at = NOW();",
+        "options": {
+          "queryReplacement": "{{ $json.clinic_id }}, {{ $json.fromNumber }}"
+        }
+      },
+      "id": "e7ea6f85-e0d4-433c-b002-1a9dfc338bca",
+      "name": "Criar conversa temporária",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.5,
+      "position": [
+        -9376,
+        3312
+      ],
+      "credentials": {
+        "postgres": {
+          "id": "hC1ecti2DctPVZwU",
+          "name": "Supabase account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "=http://evolution-api:8080/message/sendText/{{ $('Montar contexto').first().json.instanceName }}",
+        "authentication": "genericCredentialType",
+        "genericAuthType": "httpHeaderAuth",
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={\n  \"number\": \"{{ $('Montar contexto').first().json.fromNumber }}\",\n  \"text\": \"Olá! 👋 Bem-vindo(a) à {{ $('Montar contexto').first().json.clinic_name }}.\\n\\nPara sua segurança, preciso verificar sua identidade.\\n\\nVocê já foi atendido(a) por nós antes?\\n\\n✅ Se *sim*, envie os 4 últimos dígitos do seu CPF ou sua data de nascimento (dd/mm/aaaa).\\n\\n🆕 Se é sua *primeira vez*, digite *novo*.\"\n}",
+        "options": {}
+      },
+      "id": "fbb016bb-a301-4ed3-9cfc-923c8ea9de02",
+      "name": "Enviar pergunta de verificação",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        -9168,
+        3312
+      ],
+      "credentials": {
+        "httpHeaderAuth": {
+          "id": "MOeN9qdxU9au08j3",
+          "name": "Evolution API"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "jsCode": "// Paciente encontrado — merge dados do paciente com contexto\nconst ctx = $('Montar contexto').first().json;\nconst patient = $('Buscar paciente').first().json;\n\nreturn [{\n  json: {\n    ...ctx,\n    patient_id: patient.id,\n    patient_name: patient.name || ctx.pushName || 'paciente',\n    patient_insurance: patient.insurance,\n    patient_cpf_last4: patient.cpf_last4,\n    patient_birth_date: patient.birth_date\n  }\n}];"
+      },
+      "id": "039f1916-06d3-4de5-a02a-24366f386772",
+      "name": "Merge dados paciente",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        -10320,
+        2688
+      ]
+    },
+    {
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "INSERT INTO public.conversations (clinic_id, patient_id, messages, state, updated_at)\nVALUES (\n  $1::uuid,\n  $2::uuid,\n  '[]'::jsonb,\n  'MENU',\n  NOW()\n)\nON CONFLICT (clinic_id, patient_id) DO UPDATE\nSET updated_at = NOW()\nRETURNING id, clinic_id, patient_id, messages, state, updated_at;",
+        "options": {
+          "queryReplacement": "{{ $json.clinic_id }}, {{ $json.patient_id }}"
+        }
+      },
+      "id": "54df34ac-2612-499a-a9cd-b03ff154b1a0",
+      "name": "Carregar/criar conversa",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.5,
+      "position": [
+        -10080,
+        2688
+      ],
+      "credentials": {
+        "postgres": {
+          "id": "hC1ecti2DctPVZwU",
+          "name": "Supabase account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "jsCode": "// Merge conversa com contexto completo\nconst ctx = $('Merge dados paciente').first().json;\nconst conv = $('Carregar/criar conversa').first().json;\nconst msgData = $('Extrair dados da mensagem').first().json;\n\n// Append mensagem recebida ao histórico\nlet messages = [];\ntry {\n  messages = typeof conv.messages === 'string' ? JSON.parse(conv.messages) : (conv.messages || []);\n} catch(e) {\n  messages = [];\n}\n\nmessages.push({\n  role: 'user',\n  content: msgData.messageText,\n  timestamp: new Date().toISOString()\n});\n\nreturn [{\n  json: {\n    ...ctx,\n    conversation_id: conv.id,\n    conversation_state: conv.state || 'MENU',\n    messages: messages,\n    messageText: msgData.messageText\n  }\n}];"
+      },
+      "id": "803fa085-4deb-485e-94e8-5299661036d3",
+      "name": "Preparar contexto completo",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        -9856,
+        2688
+      ]
+    },
+    {
+      "parameters": {
+        "rules": {
+          "values": [
+            {
+              "conditions": {
+                "options": {
+                  "caseSensitive": true,
+                  "leftValue": "",
+                  "typeValidation": "strict",
+                  "version": 1
+                },
+                "conditions": [
+                  {
+                    "id": "r-menu",
+                    "leftValue": "={{ $json.conversation_state }}",
+                    "rightValue": "MENU",
+                    "operator": {
+                      "type": "string",
+                      "operation": "equals"
+                    }
+                  }
+                ],
+                "combinator": "and"
+              },
+              "renameOutput": true,
+              "outputKey": "MENU"
+            },
+            {
+              "conditions": {
+                "options": {
+                  "caseSensitive": true,
+                  "leftValue": "",
+                  "typeValidation": "strict",
+                  "version": 1
+                },
+                "conditions": [
+                  {
+                    "id": "r-id-ask",
+                    "leftValue": "={{ $json.conversation_state }}",
+                    "rightValue": "IDENTIFICATION_ASK",
+                    "operator": {
+                      "type": "string",
+                      "operation": "equals"
+                    }
+                  }
+                ],
+                "combinator": "and"
+              },
+              "renameOutput": true,
+              "outputKey": "IDENTIFICATION_ASK"
+            },
+            {
+              "conditions": {
+                "options": {
+                  "caseSensitive": true,
+                  "leftValue": "",
+                  "typeValidation": "strict",
+                  "version": 1
+                },
+                "conditions": [
+                  {
+                    "id": "r-id-collect",
+                    "leftValue": "={{ $json.conversation_state }}",
+                    "rightValue": "^IDENTIFICATION_COLLECT",
+                    "operator": {
+                      "type": "string",
+                      "operation": "regex"
+                    }
+                  }
+                ],
+                "combinator": "and"
+              },
+              "renameOutput": true,
+              "outputKey": "IDENTIFICATION_COLLECT"
+            },
+            {
+              "conditions": {
+                "options": {
+                  "caseSensitive": true,
+                  "leftValue": "",
+                  "typeValidation": "strict",
+                  "version": 1
+                },
+                "conditions": [
+                  {
+                    "id": "r-sched-spec",
+                    "leftValue": "={{ $json.conversation_state }}",
+                    "rightValue": "SCHEDULING_SPECIALTY",
+                    "operator": {
+                      "type": "string",
+                      "operation": "equals"
+                    }
+                  }
+                ],
+                "combinator": "and"
+              },
+              "renameOutput": true,
+              "outputKey": "SCHEDULING_SPECIALTY"
+            },
+            {
+              "conditions": {
+                "options": {
+                  "caseSensitive": true,
+                  "leftValue": "",
+                  "typeValidation": "strict",
+                  "version": 1
+                },
+                "conditions": [
+                  {
+                    "id": "r-sched-doc",
+                    "leftValue": "={{ $json.conversation_state }}",
+                    "rightValue": "SCHEDULING_DOCTOR",
+                    "operator": {
+                      "type": "string",
+                      "operation": "equals"
+                    }
+                  }
+                ],
+                "combinator": "and"
+              },
+              "renameOutput": true,
+              "outputKey": "SCHEDULING_DOCTOR"
+            },
+            {
+              "conditions": {
+                "options": {
+                  "caseSensitive": true,
+                  "leftValue": "",
+                  "typeValidation": "strict",
+                  "version": 1
+                },
+                "conditions": [
+                  {
+                    "id": "r-sched-slot",
+                    "leftValue": "={{ $json.conversation_state }}",
+                    "rightValue": "SCHEDULING_SLOT",
+                    "operator": {
+                      "type": "string",
+                      "operation": "equals"
+                    }
+                  }
+                ],
+                "combinator": "and"
+              },
+              "renameOutput": true,
+              "outputKey": "SCHEDULING_SLOT"
+            },
+            {
+              "conditions": {
+                "options": {
+                  "caseSensitive": true,
+                  "leftValue": "",
+                  "typeValidation": "strict",
+                  "version": 1
+                },
+                "conditions": [
+                  {
+                    "id": "r-sched-confirm",
+                    "leftValue": "={{ $json.conversation_state }}",
+                    "rightValue": "SCHEDULING_CONFIRM",
+                    "operator": {
+                      "type": "string",
+                      "operation": "equals"
+                    }
+                  }
+                ],
+                "combinator": "and"
+              },
+              "renameOutput": true,
+              "outputKey": "SCHEDULING_CONFIRM"
+            },
+            {
+              "conditions": {
+                "options": {
+                  "caseSensitive": true,
+                  "leftValue": "",
+                  "typeValidation": "strict",
+                  "version": 1
+                },
+                "conditions": [
+                  {
+                    "id": "r-cancel-select",
+                    "leftValue": "={{ $json.conversation_state }}",
+                    "rightValue": "CANCELLATION_SELECT",
+                    "operator": {
+                      "type": "string",
+                      "operation": "equals"
+                    }
+                  }
+                ],
+                "combinator": "and"
+              },
+              "renameOutput": true,
+              "outputKey": "CANCELLATION_SELECT"
+            },
+            {
+              "conditions": {
+                "options": {
+                  "caseSensitive": true,
+                  "leftValue": "",
+                  "typeValidation": "strict",
+                  "version": 1
+                },
+                "conditions": [
+                  {
+                    "id": "r-cancel-reason",
+                    "leftValue": "={{ $json.conversation_state }}",
+                    "rightValue": "CANCELLATION_CONFIRM",
+                    "operator": {
+                      "type": "string",
+                      "operation": "equals"
+                    }
+                  }
+                ],
+                "combinator": "and"
+              },
+              "renameOutput": true,
+              "outputKey": "CANCELLATION_CONFIRM"
+            },
+            {
+              "conditions": {
+                "options": {
+                  "caseSensitive": true,
+                  "leftValue": "",
+                  "typeValidation": "strict",
+                  "version": 1
+                },
+                "conditions": [
+                  {
+                    "id": "r-cancel-reschedule",
+                    "leftValue": "={{ $json.conversation_state }}",
+                    "rightValue": "CANCELLATION_EXECUTE",
+                    "operator": {
+                      "type": "string",
+                      "operation": "equals"
+                    }
+                  }
+                ],
+                "combinator": "and"
+              },
+              "renameOutput": true,
+              "outputKey": "CANCELLATION_EXECUTE"
+            },
+            {
+              "conditions": {
+                "options": {
+                  "caseSensitive": true,
+                  "leftValue": "",
+                  "typeValidation": "strict",
+                  "version": 1
+                },
+                "conditions": [
+                  {
+                    "id": "r-doubt",
+                    "leftValue": "={{ $json.conversation_state }}",
+                    "rightValue": "DOUBT",
+                    "operator": {
+                      "type": "string",
+                      "operation": "equals"
+                    }
+                  }
+                ],
+                "combinator": "and"
+              },
+              "renameOutput": true,
+              "outputKey": "DOUBT"
+            },
+            {
+              "conditions": {
+                "options": {
+                  "caseSensitive": true,
+                  "leftValue": "",
+                  "typeValidation": "strict",
+                  "version": 1
+                },
+                "conditions": [
+                  {
+                    "id": "r-human",
+                    "leftValue": "={{ $json.conversation_state }}",
+                    "rightValue": "HUMAN_TRANSFER",
+                    "operator": {
+                      "type": "string",
+                      "operation": "equals"
+                    }
+                  }
+                ],
+                "combinator": "and"
+              },
+              "renameOutput": true,
+              "outputKey": "HUMAN_TRANSFER"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "id": "f069c562-ea0d-423c-ba69-f3847538ba38",
+      "name": "Rotear por estado",
+      "type": "n8n-nodes-base.switch",
+      "typeVersion": 3,
+      "position": [
+        -9616,
+        2528
+      ]
+    },
+    {
+      "parameters": {
+        "jsCode": "// Estado MENU: processa escolha do paciente ou exibe menu\nconst data = $input.first().json;\nconst choice = data.messageText.trim();\n\nlet responseText = '';\nlet newState = 'MENU';\n\nswitch(choice) {\n  case '1':\n    newState = 'SCHEDULING_SPECIALTY';\n    responseText = '__TRIGGER_SCHEDULING__';\n    break;\n  case '2':\n    newState = 'CANCELLATION_SELECT';\n    responseText = '__TRIGGER_CANCELLATION__';\n    break;\n  case '3':\n    newState = 'DOUBT';\n    responseText = '__TRIGGER_DOUBT__';\n    break;\n  case '4':\n    newState = 'MENU';\n    responseText = '__TRIGGER_PRICES__';\n    break;\n  default:\n    // Exibe menu principal\n    responseText = `Olá, ${data.patient_name}! 👋\\nSou a assistente virtual da ${data.clinic_name}.\\n\\nComo posso ajudar?\\n\\n1️⃣ Agendar consulta\\n2️⃣ Cancelar ou remarcar consulta\\n3️⃣ Tirar dúvidas\\n4️⃣ Consultar valores\\n\\nDigite o número da opção desejada.`;\n    newState = 'MENU';\n    break;\n}\n\nreturn [{\n  json: {\n    ...data,\n    responseText,\n    newState,\n    triggerSubflow: ['1','2','3','4'].includes(choice) ? choice : null\n  }\n}];"
+      },
+      "id": "6f5419ee-c050-4bb1-8f4d-5cacf67b9b82",
+      "name": "Processar menu",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        -9168,
+        2304
+      ]
+    },
+    {
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "UPDATE public.conversations\nSET state = $1,\n    messages = $2::jsonb,\n    updated_at = NOW()\nWHERE id = $3;",
+        "options": {
+          "queryReplacement": "{{ $json.newState }}, {{ JSON.stringify($json.messages) }}, {{ $json.conversation_id }}"
+        }
+      },
+      "id": "f8d8a84e-79ac-4023-94fa-97b8123c3509",
+      "name": "Atualizar estado (menu)",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.5,
+      "position": [
+        -8944,
+        2304
+      ],
+      "credentials": {
+        "postgres": {
+          "id": "hC1ecti2DctPVZwU",
+          "name": "Supabase account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict",
+            "version": 1
+          },
+          "conditions": [
+            {
+              "id": "subflow-check",
+              "leftValue": "={{ $('Processar menu').first().json.triggerSubflow }}",
+              "rightValue": "",
+              "operator": {
+                "type": "string",
+                "operation": "exists",
+                "singleValue": true
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "id": "274a58e1-6b15-49f1-953d-db0fb1f00e27",
+      "name": "Acionar sub-fluxo?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2,
+      "position": [
+        -8704,
+        2304
+      ]
+    },
+    {
+      "parameters": {
+        "jsCode": "// Restaura contexto completo após Postgres UPDATE (que apaga $json)\nconst ctx = $('Preparar contexto completo').first().json;\nconst menu = $('Processar menu').first().json;\nreturn [{ json: { ...ctx, triggerSubflow: menu.triggerSubflow, newState: menu.newState } }];"
+      },
+      "id": "25d883c1-e13b-4979-b431-a9398d811550",
+      "name": "Restaurar contexto para sub-fluxo",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        -8496,
+        2144
+      ]
+    },
+    {
+      "parameters": {
+        "rules": {
+          "values": [
+            {
+              "conditions": {
+                "options": {
+                  "caseSensitive": true,
+                  "leftValue": "",
+                  "typeValidation": "strict",
+                  "version": 1
+                },
+                "conditions": [
+                  {
+                    "id": "rule-sched",
+                    "leftValue": "={{ $json.triggerSubflow }}",
+                    "rightValue": "1",
+                    "operator": {
+                      "type": "string",
+                      "operation": "equals"
+                    }
+                  }
+                ],
+                "combinator": "and"
+              },
+              "renameOutput": true,
+              "outputKey": "Agendamento"
+            },
+            {
+              "conditions": {
+                "options": {
+                  "caseSensitive": true,
+                  "leftValue": "",
+                  "typeValidation": "strict",
+                  "version": 1
+                },
+                "conditions": [
+                  {
+                    "id": "rule-cancel",
+                    "leftValue": "={{ $json.triggerSubflow }}",
+                    "rightValue": "2",
+                    "operator": {
+                      "type": "string",
+                      "operation": "equals"
+                    }
+                  }
+                ],
+                "combinator": "and"
+              },
+              "renameOutput": true,
+              "outputKey": "Cancelamento"
+            },
+            {
+              "conditions": {
+                "options": {
+                  "caseSensitive": true,
+                  "leftValue": "",
+                  "typeValidation": "strict",
+                  "version": 1
+                },
+                "conditions": [
+                  {
+                    "id": "rule-doubt",
+                    "leftValue": "={{ $json.triggerSubflow }}",
+                    "rightValue": "3",
+                    "operator": {
+                      "type": "string",
+                      "operation": "equals"
+                    }
+                  }
+                ],
+                "combinator": "and"
+              },
+              "renameOutput": true,
+              "outputKey": "Dúvidas"
+            },
+            {
+              "conditions": {
+                "options": {
+                  "caseSensitive": true,
+                  "leftValue": "",
+                  "typeValidation": "strict",
+                  "version": 1
+                },
+                "conditions": [
+                  {
+                    "id": "rule-prices",
+                    "leftValue": "={{ $json.triggerSubflow }}",
+                    "rightValue": "4",
+                    "operator": {
+                      "type": "string",
+                      "operation": "equals"
+                    }
+                  }
+                ],
+                "combinator": "and"
+              },
+              "renameOutput": true,
+              "outputKey": "Valores"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "id": "d0588528-3023-48d5-9f95-3d9d2739aef7",
+      "name": "Qual sub-fluxo?",
+      "type": "n8n-nodes-base.switch",
+      "typeVersion": 3,
+      "position": [
+        -8336,
+        2112
+      ]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "=http://evolution-api:8080/message/sendText/{{ $('Montar contexto').first().json.instanceName }}",
+        "authentication": "genericCredentialType",
+        "genericAuthType": "httpHeaderAuth",
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ JSON.stringify({ number: $('Montar contexto').first().json.fromNumber, text: $('Processar menu').first().json.responseText }) }}",
+        "options": {}
+      },
+      "id": "fd9c30fb-e6ba-480e-84f4-b105f80eccb8",
+      "name": "Enviar menu",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        -8496,
+        2400
+      ],
+      "credentials": {
+        "httpHeaderAuth": {
+          "id": "MOeN9qdxU9au08j3",
+          "name": "Evolution API"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "workflowId": {
+          "__rl": true,
+          "value": "=",
+          "mode": "id",
+          "cachedResultUrl": "/workflow/="
+        },
+        "options": {}
+      },
+      "id": "34c76c41-67fd-4f26-849e-6db3aad91a8b",
+      "name": "Executar: Agendamento",
+      "type": "n8n-nodes-base.executeWorkflow",
+      "typeVersion": 1.1,
+      "position": [
+        -8128,
+        1920
+      ]
+    },
+    {
+      "parameters": {
+        "workflowId": {
+          "__rl": true,
+          "value": "=",
+          "mode": "id",
+          "cachedResultUrl": "/workflow/="
+        },
+        "options": {}
+      },
+      "id": "58068f10-ee0f-4c7e-9eb1-8614172296c9",
+      "name": "Executar: Cancelamento",
+      "type": "n8n-nodes-base.executeWorkflow",
+      "typeVersion": 1.1,
+      "position": [
+        -8128,
+        2080
+      ]
+    },
+    {
+      "parameters": {
+        "workflowId": {
+          "__rl": true,
+          "value": "=",
+          "mode": "id",
+          "cachedResultUrl": "/workflow/="
+        },
+        "options": {}
+      },
+      "id": "e18a984d-1278-467b-b136-a8e4d9501f94",
+      "name": "Executar: Dúvidas",
+      "type": "n8n-nodes-base.executeWorkflow",
+      "typeVersion": 1.1,
+      "position": [
+        -8128,
+        2240
+      ]
+    },
+    {
+      "parameters": {
+        "workflowId": {
+          "__rl": true,
+          "value": "=",
+          "mode": "id",
+          "cachedResultUrl": "/workflow/="
+        },
+        "options": {}
+      },
+      "id": "fc9eb7e9-b367-4463-be10-2ba5946a9907",
+      "name": "Executar: Identificação",
+      "type": "n8n-nodes-base.executeWorkflow",
+      "typeVersion": 1.1,
+      "position": [
+        -9168,
+        2464
+      ]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "=http://evolution-api:8080/message/sendText/{{ $json.instanceName }}",
+        "authentication": "genericCredentialType",
+        "genericAuthType": "httpHeaderAuth",
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={\n  \"number\": \"{{ $json.fromNumber }}\",\n  \"text\": \"Seu atendimento foi transferido para um de nossos atendentes. Em breve alguém entrará em contato. Obrigado pela paciência! 🙏\"\n}",
+        "options": {}
+      },
+      "id": "4864055e-7724-41da-a1eb-d4d5cdee5c1c",
+      "name": "Msg: Aguardando atendente humano",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        -9168,
+        3152
+      ],
+      "credentials": {
+        "httpHeaderAuth": {
+          "id": "MOeN9qdxU9au08j3",
+          "name": "Evolution API"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "workflowId": {
+          "__rl": true,
+          "value": "=",
+          "mode": "id",
+          "cachedResultUrl": "/workflow/="
+        },
+        "options": {}
+      },
+      "id": "bf8521b3-cd7c-4c66-8a1f-846fca0f7318",
+      "name": "Executar: Agendamento (retorno)",
+      "type": "n8n-nodes-base.executeWorkflow",
+      "typeVersion": 1.1,
+      "position": [
+        -9168,
+        2624
+      ]
+    },
+    {
+      "parameters": {
+        "workflowId": {
+          "__rl": true,
+          "value": "=",
+          "mode": "id",
+          "cachedResultUrl": "/workflow/="
+        },
+        "options": {}
+      },
+      "id": "707f58a8-f82e-4aa1-8b6e-8464c54b9f84",
+      "name": "Executar: Cancelamento (retorno)",
+      "type": "n8n-nodes-base.executeWorkflow",
+      "typeVersion": 1.1,
+      "position": [
+        -9168,
+        2800
+      ]
+    },
+    {
+      "parameters": {
+        "workflowId": {
+          "__rl": true,
+          "value": "=",
+          "mode": "id",
+          "cachedResultUrl": "/workflow/="
+        },
+        "options": {}
+      },
+      "id": "d609c1a3-5220-40ff-8b50-0530b7dea1f8",
+      "name": "Executar: Dúvidas (retorno)",
+      "type": "n8n-nodes-base.executeWorkflow",
+      "typeVersion": 1.1,
+      "position": [
+        -9168,
+        2976
+      ]
+    },
+    {
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "SELECT id, state, messages FROM public.conversations\nWHERE clinic_id = $1::uuid\n  AND whatsapp_number = $2\n  AND patient_id IS NULL\nLIMIT 1;",
+        "options": {
+          "queryReplacement": "{{ $json.clinic_id }}, {{ $json.fromNumber }}"
+        }
+      },
+      "id": "bbdae661-9058-4ada-885f-594937ff5d36",
+      "name": "Buscar conversa temporária",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.5,
+      "alwaysOutputData": true,
+      "position": [
+        -10080,
+        3328
+      ],
+      "credentials": {
+        "postgres": {
+          "id": "hC1ecti2DctPVZwU",
+          "name": "Supabase account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "jsCode": "const ctx = $('Preparar novo contato').first().json;\nconst conv = $input.first().json;\nconst hasConversation = !!(conv && conv.id);\n\nlet messages = [];\nif (hasConversation && conv.messages) {\n  try {\n    messages = typeof conv.messages === 'string' ? JSON.parse(conv.messages) : conv.messages;\n  } catch(e) { messages = []; }\n}\n\nreturn [{\n  json: {\n    ...ctx,\n    conversation_id: hasConversation ? conv.id : null,\n    conversation_state: hasConversation ? conv.state : 'IDENTIFICATION_ASK',\n    messages,\n    isFirstContact: !hasConversation\n  }\n}];"
+      },
+      "id": "4e1b6926-578b-4285-8223-8e3f8980684a",
+      "name": "Verificar contato",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        -9856,
+        3328
+      ]
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict",
+            "version": 1
+          },
+          "conditions": [
+            {
+              "id": "first-contact-check",
+              "leftValue": "={{ $json.isFirstContact }}",
+              "rightValue": true,
+              "operator": {
+                "type": "boolean",
+                "operation": "equals"
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "id": "c8c25fed-5251-4f4e-af14-30aecdce728b",
+      "name": "É primeiro contato?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2,
+      "position": [
+        -9616,
+        3328
+      ]
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict",
+            "version": 1
+          },
+          "conditions": [
+            {
+              "id": "cmd-check",
+              "leftValue": "={{ $json.messageText }}",
+              "rightValue": "^!(ligar|pausar)\\s+\\d+",
+              "operator": {
+                "type": "string",
+                "operation": "regex"
+              }
+            },
+            {
+              "id": "agent-check",
+              "leftValue": "={{ $json.fromNumber }}",
+              "rightValue": "={{ $json.human_agent_number }}",
+              "operator": {
+                "type": "string",
+                "operation": "equals"
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "id": "9616874a-7f63-43ad-a668-72f6aa2b37ed",
+      "name": "É comando admin?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2,
+      "position": [
+        -11024,
+        2688
+      ]
+    },
+    {
+      "parameters": {
+        "jsCode": "const data = $input.first().json;\nconst parts = data.messageText.trim().split(/\\s+/);\nconst command = parts[0].toLowerCase();\nconst targetNumber = (parts[1] || '').replace(/\\D/g, '');\n\nreturn [{ json: { ...data, command, targetNumber } }];"
+      },
+      "id": "604bad5c-e010-42dc-a781-0fb75c0851e5",
+      "name": "Processar comando admin",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        -10576,
+        2496
+      ]
+    },
+    {
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "UPDATE public.conversations\nSET state = CASE WHEN $1 = '!pausar' THEN 'HUMAN_TRANSFER' ELSE 'MENU' END,\n    messages = '[]'::jsonb,\n    updated_at = NOW()\nWHERE patient_id = (\n  SELECT id FROM public.patients\n  WHERE clinic_id = $2\n    AND whatsapp_number = $3\n  LIMIT 1\n);",
+        "options": {
+          "queryReplacement": "{{ $('Processar comando admin').first().json.command }}, {{ $json.clinic_id }}, {{ $json.targetNumber }}"
+        }
+      },
+      "id": "a72f1409-a4ba-4845-9970-01523f0940ea",
+      "name": "Executar comando DB",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.5,
+      "position": [
+        -10320,
+        2496
+      ],
+      "alwaysOutputData": true,
+      "credentials": {
+        "postgres": {
+          "id": "hC1ecti2DctPVZwU",
+          "name": "Supabase account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "=http://evolution-api:8080/message/sendText/{{ $('Processar comando admin').first().json.instanceName }}",
+        "authentication": "genericCredentialType",
+        "genericAuthType": "httpHeaderAuth",
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ $('Processar comando admin').first().json.command === '!pausar' ? JSON.stringify({ number: $('Processar comando admin').first().json.targetNumber, text: '⏸️ O seu atendimento foi pausado pelo administrador. Um humano assumirá a conversa em breve.' }) : JSON.stringify({ number: $('Processar comando admin').first().json.targetNumber, text: '🤖 Olá novamente! O bot foi reativado para o seu atendimento.\\n\\n1️⃣ Agendar consulta\\n2️⃣ Cancelar ou remarcar consulta\\n3️⃣ Tirar dúvidas\\n4️⃣ Consultar valores\\n\\nDigite o número da opção desejada.' }) }}",
+        "options": {}
+      },
+      "id": "c15a407e-36ec-4119-9dd7-97d9de7ac258",
+      "name": "Avisar paciente (reativação)",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        -10080,
+        2496
+      ],
+      "credentials": {
+        "httpHeaderAuth": {
+          "id": "MOeN9qdxU9au08j3",
+          "name": "Evolution API"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "=http://evolution-api:8080/message/sendText/{{ $('Processar comando admin').first().json.instanceName }}",
+        "authentication": "genericCredentialType",
+        "genericAuthType": "httpHeaderAuth",
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ JSON.stringify({ number: $('Processar comando admin').first().json.fromNumber, text: '✅ Comando executado para ' + $('Processar comando admin').first().json.targetNumber }) }}",
+        "options": {}
+      },
+      "id": "8a64e571-c435-473d-933b-6089395e6c5f",
+      "name": "Confirmar comando ao atendente",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        -9856,
+        2496
+      ],
+      "credentials": {
+        "httpHeaderAuth": {
+          "id": "MOeN9qdxU9au08j3",
+          "name": "Evolution API"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "SELECT name, specialty, consultation_price\nFROM public.doctors\nWHERE clinic_id = $1\n  AND active = true\nORDER BY specialty, name;",
+        "options": {
+          "queryReplacement": "{{ $json.clinic_id }}"
+        }
+      },
+      "id": "38b29f2a-4bc5-42d9-9104-07ed1e5f0609",
+      "name": "Buscar preços",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.5,
+      "position": [
+        -8128,
+        2400
+      ],
+      "alwaysOutputData": true,
+      "credentials": {
+        "postgres": {
+          "id": "hC1ecti2DctPVZwU",
+          "name": "Supabase account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "jsCode": "const ctx = $('Restaurar contexto para sub-fluxo').first().json;\nconst doctors = $input.all().map(d => d.json).filter(d => d.name);\n\nlet text = '💰 *Valores das consultas:*\\n\\n';\n\nif (doctors.length === 0) {\n  text += 'Informação não disponível no momento.';\n} else {\n  let currentSpecialty = '';\n  for (const d of doctors) {\n    if (d.specialty !== currentSpecialty) {\n      currentSpecialty = d.specialty;\n      text += `*${currentSpecialty}*\\n`;\n    }\n    const price = d.consultation_price\n      ? `R$ ${Number(d.consultation_price).toFixed(2).replace('.', ',')}`\n      : 'Sob consulta';\n    text += `  • ${d.name} — ${price}\\n`;\n  }\n}\n\ntext += '\\nConvênios aceitos: ' + (Array.isArray(ctx.clinic_insurances) ? ctx.clinic_insurances.join(', ') : 'Particular');\ntext += '\\n\\nDeseja agendar uma consulta? Digite *1*.';\ntext += '\\n\\n1️⃣ Agendar consulta\\n2️⃣ Cancelar ou remarcar\\n3️⃣ Tirar dúvidas\\n4️⃣ Consultar valores';\n\nreturn [{ json: { ...ctx, priceText: text } }];"
+      },
+      "id": "6a94147e-6425-4765-8f19-af452b2a17a8",
+      "name": "Formatar preços",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        -7904,
+        2400
+      ]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "=http://evolution-api:8080/message/sendText/{{ $json.instanceName }}",
+        "authentication": "genericCredentialType",
+        "genericAuthType": "httpHeaderAuth",
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ JSON.stringify({ number: $json.fromNumber, text: $json.priceText }) }}",
+        "options": {}
+      },
+      "id": "31b1d9c4-6eca-4499-9a50-05f8dfc14032",
+      "name": "Enviar preços",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        -7696,
+        2400
+      ],
+      "credentials": {
+        "httpHeaderAuth": {
+          "id": "MOeN9qdxU9au08j3",
+          "name": "Evolution API"
+        }
+      }
+    }
+  ],
+  "pinData": {},
+  "connections": {
+    "Webhook Evolution API": {
+      "main": [
+        [
+          {
+            "node": "Extrair dados da mensagem",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Extrair dados da mensagem": {
+      "main": [
+        [
+          {
+            "node": "Ignorar evento?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Ignorar evento?": {
+      "main": [
+        [
+          {
+            "node": "Evento ignorado",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Buscar clínica por instância",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Buscar clínica por instância": {
+      "main": [
+        [
+          {
+            "node": "Clínica encontrada?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Clínica encontrada?": {
+      "main": [
+        [
+          {
+            "node": "Montar contexto",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Clínica não encontrada - ignorar",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Montar contexto": {
+      "main": [
+        [
+          {
+            "node": "É comando admin?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "É comando admin?": {
+      "main": [
+        [
+          {
+            "node": "Processar comando admin",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Buscar paciente",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Buscar paciente": {
+      "main": [
+        [
+          {
+            "node": "Paciente encontrado?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Paciente encontrado?": {
+      "main": [
+        [
+          {
+            "node": "Merge dados paciente",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Preparar novo contato",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Preparar novo contato": {
+      "main": [
+        [
+          {
+            "node": "Buscar conversa temporária",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Criar conversa temporária": {
+      "main": [
+        [
+          {
+            "node": "Enviar pergunta de verificação",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Merge dados paciente": {
+      "main": [
+        [
+          {
+            "node": "Carregar/criar conversa",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Carregar/criar conversa": {
+      "main": [
+        [
+          {
+            "node": "Preparar contexto completo",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Preparar contexto completo": {
+      "main": [
+        [
+          {
+            "node": "Rotear por estado",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Rotear por estado": {
+      "main": [
+        [
+          {
+            "node": "Processar menu",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Executar: Identificação",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Executar: Identificação",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Executar: Agendamento (retorno)",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Executar: Agendamento (retorno)",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Executar: Agendamento (retorno)",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Executar: Agendamento (retorno)",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Executar: Cancelamento (retorno)",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Executar: Cancelamento (retorno)",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Executar: Cancelamento (retorno)",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Executar: Dúvidas (retorno)",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Msg: Aguardando atendente humano",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Processar menu": {
+      "main": [
+        [
+          {
+            "node": "Atualizar estado (menu)",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Atualizar estado (menu)": {
+      "main": [
+        [
+          {
+            "node": "Acionar sub-fluxo?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Acionar sub-fluxo?": {
+      "main": [
+        [
+          {
+            "node": "Restaurar contexto para sub-fluxo",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Enviar menu",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Restaurar contexto para sub-fluxo": {
+      "main": [
+        [
+          {
+            "node": "Qual sub-fluxo?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Qual sub-fluxo?": {
+      "main": [
+        [
+          {
+            "node": "Executar: Agendamento",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Executar: Cancelamento",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Executar: Dúvidas",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Buscar preços",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Buscar preços": {
+      "main": [
+        [
+          {
+            "node": "Formatar preços",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Formatar preços": {
+      "main": [
+        [
+          {
+            "node": "Enviar preços",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Buscar conversa temporária": {
+      "main": [
+        [
+          {
+            "node": "Verificar contato",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Verificar contato": {
+      "main": [
+        [
+          {
+            "node": "É primeiro contato?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "É primeiro contato?": {
+      "main": [
+        [
+          {
+            "node": "Criar conversa temporária",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Executar: Identificação",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Processar comando admin": {
+      "main": [
+        [
+          {
+            "node": "Executar comando DB",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Executar comando DB": {
+      "main": [
+        [
+          {
+            "node": "Avisar paciente (reativação)",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Avisar paciente (reativação)": {
+      "main": [
+        [
+          {
+            "node": "Confirmar comando ao atendente",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "active": true,
+  "settings": {
+    "executionOrder": "v1",
+    "binaryMode": "separate",
+    "errorWorkflow": "global_error_handler_123"
+  },
+  "versionId": "855b38c5-05e6-4d6f-a6e7-20c4fbcc2eae",
+  "meta": {
+    "templateCredsSetupCompleted": true,
+    "instanceId": "1024d4a0bdb451c88b4bc14d3bfc3a2e5b93aca4588e773c7a54e98c73646ff7"
+  },
+  "nodeGroups": [],
+  "id": "SmxyKdAKFstNz6v9",
+  "tags": [
+    {
+      "updatedAt": "2026-06-16T16:22:28.171Z",
+      "createdAt": "2026-06-16T16:22:28.171Z",
+      "id": "FO8y1XT6vDqe62Od",
+      "name": "chatbot-clinicas"
+    },
+    {
+      "updatedAt": "2026-06-16T16:22:28.194Z",
+      "createdAt": "2026-06-16T16:22:28.194Z",
+      "id": "XXWVdp2DYjWYvXbo",
+      "name": "webhook"
+    },
+    {
+      "updatedAt": "2026-06-16T16:22:28.191Z",
+      "createdAt": "2026-06-16T16:22:28.191Z",
+      "id": "xZoY5gTJEcpE0AUB",
+      "name": "sub-workflow"
+    },
+    {
+      "updatedAt": "2026-06-16T16:22:28.187Z",
+      "createdAt": "2026-06-16T16:22:28.187Z",
+      "id": "xz0405RkzAZ4DVoI",
+      "name": "principal"
+    }
+  ]
+}

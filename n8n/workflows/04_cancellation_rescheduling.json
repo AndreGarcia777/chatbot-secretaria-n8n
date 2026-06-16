@@ -1,0 +1,879 @@
+{
+  "name": "04 - [SUB] Cancelamento e Remarcação",
+  "nodes": [
+    {
+      "parameters": {
+        "inputSource": "passthrough"
+      },
+      "id": "07c30348-a681-4688-b8b8-2b8c6ab52eed",
+      "name": "Trigger do workflow principal",
+      "type": "n8n-nodes-base.executeWorkflowTrigger",
+      "typeVersion": 1.1,
+      "position": [
+        2512,
+        1056
+      ]
+    },
+    {
+      "parameters": {
+        "jsCode": "const data = $input.first().json;\nconst state = data.conversation_state;\n\nlet action = 'LIST_APPOINTMENTS';\nswitch(state) {\n  case 'CANCELLATION_SELECT': action = 'LIST_APPOINTMENTS'; break;\n  case 'CANCELLATION_CONFIRM': action = 'COLLECT_REASON'; break;\n  case 'CANCELLATION_EXECUTE': action = 'HANDLE_RESCHEDULE_RESPONSE'; break;\n  default: action = 'LIST_APPOINTMENTS';\n}\n\nreturn [{ json: { ...data, action } }];"
+      },
+      "id": "eaa92672-e3a6-48c0-a90e-72ffd8e8052d",
+      "name": "Determinar etapa",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        2752,
+        1056
+      ]
+    },
+    {
+      "parameters": {
+        "rules": {
+          "values": [
+            {
+              "conditions": {
+                "options": {
+                  "caseSensitive": true,
+                  "leftValue": "",
+                  "typeValidation": "strict",
+                  "version": 1
+                },
+                "conditions": [
+                  {
+                    "id": "r-list",
+                    "leftValue": "={{ $json.action }}",
+                    "rightValue": "LIST_APPOINTMENTS",
+                    "operator": {
+                      "type": "string",
+                      "operation": "equals"
+                    }
+                  }
+                ],
+                "combinator": "and"
+              },
+              "renameOutput": true,
+              "outputKey": "LIST_APPOINTMENTS"
+            },
+            {
+              "conditions": {
+                "options": {
+                  "caseSensitive": true,
+                  "leftValue": "",
+                  "typeValidation": "strict",
+                  "version": 1
+                },
+                "conditions": [
+                  {
+                    "id": "r-reason",
+                    "leftValue": "={{ $json.action }}",
+                    "rightValue": "COLLECT_REASON",
+                    "operator": {
+                      "type": "string",
+                      "operation": "equals"
+                    }
+                  }
+                ],
+                "combinator": "and"
+              },
+              "renameOutput": true,
+              "outputKey": "COLLECT_REASON"
+            },
+            {
+              "conditions": {
+                "options": {
+                  "caseSensitive": true,
+                  "leftValue": "",
+                  "typeValidation": "strict",
+                  "version": 1
+                },
+                "conditions": [
+                  {
+                    "id": "r-reschedule",
+                    "leftValue": "={{ $json.action }}",
+                    "rightValue": "HANDLE_RESCHEDULE_RESPONSE",
+                    "operator": {
+                      "type": "string",
+                      "operation": "equals"
+                    }
+                  }
+                ],
+                "combinator": "and"
+              },
+              "renameOutput": true,
+              "outputKey": "HANDLE_RESCHEDULE_RESPONSE"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "id": "9d56a817-f6c7-4c69-a384-5d05aa676b83",
+      "name": "Switch etapa",
+      "type": "n8n-nodes-base.switch",
+      "typeVersion": 3,
+      "position": [
+        2992,
+        1040
+      ]
+    },
+    {
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "SELECT a.id, a.scheduled_at, d.name as doctor_name, d.specialty\nFROM public.appointments a\nJOIN public.doctors d ON a.doctor_id = d.id\nWHERE a.clinic_id = $1\n  AND a.patient_id = $2\n  AND a.scheduled_at > NOW()\n  AND a.status = 'scheduled'\nORDER BY a.scheduled_at;",
+        "options": {
+          "queryReplacement": "{{ $json.clinic_id }}, {{ $json.patient_id }}"
+        }
+      },
+      "id": "f01bde1a-b7db-449f-bef2-874faa917fe5",
+      "name": "Listar consultas futuras",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.5,
+      "position": [
+        3248,
+        496
+      ],
+      "alwaysOutputData": true,
+      "credentials": {
+        "postgres": {
+          "id": "hC1ecti2DctPVZwU",
+          "name": "Supabase account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "jsCode": "const data = $('Determinar etapa').first().json;\nconst appointments = $input.all().map(item => item.json);\n\nif (appointments.length === 0 || !appointments[0].id) {\n  return [{\n    json: {\n      ...data,\n      hasAppointments: false,\n      responseText: 'Você não tem consultas futuras agendadas. 📋\\n\\nDeseja agendar uma nova consulta?\\n\\n1️⃣ Agendar consulta\\n2️⃣ Voltar ao menu',\n      newState: 'MENU'\n    }\n  }];\n}\n\nlet text = '📋 *Suas consultas agendadas:*\\n\\n';\nappointments.forEach((a, i) => {\n  const date = new Date(a.scheduled_at);\n  const dateStr = date.toLocaleDateString('pt-BR', { weekday: 'short', day: '2-digit', month: '2-digit', year: 'numeric' });\n  const timeStr = date.toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' });\n  text += `${i + 1}️⃣ ${dateStr} às ${timeStr} — ${a.doctor_name} (${a.specialty})\\n`;\n});\ntext += '\\nDigite o *número* da consulta que deseja cancelar ou remarcar.';\n\nreturn [{\n  json: {\n    ...data,\n    hasAppointments: true,\n    appointmentsList: appointments,\n    responseText: text,\n    newState: 'CANCELLATION_CONFIRM'\n  }\n}];"
+      },
+      "id": "a1ce839d-afed-4d44-8575-d155123d1152",
+      "name": "Formatar consultas",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        3456,
+        496
+      ]
+    },
+    {
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "UPDATE public.conversations\nSET state = $1,\n    messages = messages || jsonb_build_array(jsonb_build_object('appointments', $2::text)),\n    updated_at = NOW()\nWHERE clinic_id = $3\n  AND patient_id = $4;",
+        "options": {
+          "queryReplacement": "{{ $json.newState }}, {{ JSON.stringify($json.appointmentsList || []) }}, {{ $json.clinic_id }}, {{ $json.patient_id }}"
+        }
+      },
+      "id": "56d2a202-4423-4e90-ba94-e45d3406a084",
+      "name": "Atualizar estado (consultas)",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.5,
+      "position": [
+        3664,
+        496
+      ],
+      "credentials": {
+        "postgres": {
+          "id": "hC1ecti2DctPVZwU",
+          "name": "Supabase account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "=http://evolution-api:8080/message/sendText/{{ $('Formatar consultas').first().json.instanceName }}",
+        "authentication": "genericCredentialType",
+        "genericAuthType": "httpHeaderAuth",
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ JSON.stringify({ number: $('Formatar consultas').first().json.fromNumber, text: $('Formatar consultas').first().json.responseText }) }}",
+        "options": {}
+      },
+      "id": "a745d13d-be03-4b3a-be09-4b9796bf13d0",
+      "name": "Enviar lista de consultas",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        3888,
+        496
+      ],
+      "credentials": {
+        "httpHeaderAuth": {
+          "id": "MOeN9qdxU9au08j3",
+          "name": "Evolution API"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "jsCode": "const data = $('Determinar etapa').first().json;\nconst userInput = (data.messageText || '').trim();\n\nif (userInput === '0') {\n  return [{ json: { ...data, wantsExit: true, validChoice: false, selectedAppointment: null, rePromptText: '' } }];\n}\n\nconst choice = parseInt(userInput);\nlet appointments = [];\ntry {\n  const msgs = typeof data.messages === 'string' ? JSON.parse(data.messages) : (data.messages || []);\n  for (const m of msgs) {\n    if (m.appointments) {\n      appointments = typeof m.appointments === 'string' ? JSON.parse(m.appointments) : m.appointments;\n    }\n  }\n} catch(e) {}\n\nconst selectedAppt = appointments[choice - 1] || null;\n\nlet rePromptText = '';\nif (!selectedAppt) {\n  rePromptText = '⚠️ Não entendi. Por favor, envie apenas o *número* da consulta:\\n\\n';\n  appointments.forEach((a, i) => {\n    const date = new Date(a.scheduled_at);\n    const dateStr = date.toLocaleDateString('pt-BR', { weekday: 'short', day: '2-digit', month: '2-digit' });\n    const timeStr = date.toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' });\n    rePromptText += `${i+1}️⃣ ${dateStr} às ${timeStr} — ${a.doctor_name}\\n`;\n  });\n  rePromptText += '\\nDigite o *número* desejado.';\n}\n\nreturn [{\n  json: {\n    ...data,\n    wantsExit: false,\n    selectedAppointment: selectedAppt,\n    validChoice: selectedAppt !== null,\n    rePromptText\n  }\n}];"
+      },
+      "id": "604045d8-ae83-48e6-a7e8-b2873790330a",
+      "name": "Identificar consulta escolhida",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        3248,
+        1056
+      ]
+    },
+    {
+      "parameters": {
+        "jsCode": "const prevData = $('Identificar consulta escolhida').first().json;\nreturn [{\n  json: {\n    ...prevData,\n    aiMotiveQuestion: `Você selecionou a consulta com ${prevData.selectedAppointment.doctor_name}. Digite *1* para confirmar o cancelamento definitivo, ou *0* para desistir e voltar ao menu.`\n  }\n}];"
+      },
+      "id": "13b54465-9f3b-4fc3-88b7-2804a737102f",
+      "name": "Preparar mensagem de confirmação",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        3888,
+        912
+      ]
+    },
+    {
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "UPDATE public.conversations\nSET state = 'CANCELLATION_EXECUTE',\n    messages = messages || jsonb_build_array(jsonb_build_object(\n      'selected_appointment', $1::text\n    )),\n    updated_at = NOW()\nWHERE clinic_id = $2\n  AND patient_id = $3;",
+        "options": {
+          "queryReplacement": "{{ JSON.stringify($json.selectedAppointment) }}, {{ $json.clinic_id }}, {{ $json.patient_id }}"
+        }
+      },
+      "id": "f3d9141b-37f0-432d-b901-7e8a38ad5db9",
+      "name": "Atualizar estado (motivo)",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.5,
+      "position": [
+        4112,
+        912
+      ],
+      "credentials": {
+        "postgres": {
+          "id": "hC1ecti2DctPVZwU",
+          "name": "Supabase account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "=http://evolution-api:8080/message/sendText/{{ $('Preparar mensagem de confirmação').first().json.instanceName }}",
+        "authentication": "genericCredentialType",
+        "genericAuthType": "httpHeaderAuth",
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ JSON.stringify({ number: $('Preparar mensagem de confirmação').first().json.fromNumber, text: $('Preparar mensagem de confirmação').first().json.aiMotiveQuestion }) }}",
+        "options": {}
+      },
+      "id": "56b8c43c-5990-4d57-bafe-ff16564b07bc",
+      "name": "Enviar pergunta de motivo",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        4336,
+        912
+      ],
+      "credentials": {
+        "httpHeaderAuth": {
+          "id": "",
+          "name": "Header Auth account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "jsCode": "const data = $('Determinar etapa').first().json;\nconst userInput = (data.messageText || '').trim();\n\nlet selectedAppointment = null;\ntry {\n  const msgs = typeof data.messages === 'string' ? JSON.parse(data.messages) : (data.messages || []);\n  for (const m of msgs) {\n    if (m.selected_appointment) {\n      selectedAppointment = typeof m.selected_appointment === 'string' ? JSON.parse(m.selected_appointment) : m.selected_appointment;\n    }\n  }\n} catch(e) {}\n\nconst wantsCancel = userInput === '1';\n\nreturn [{\n  json: {\n    ...data,\n    wantsCancel,\n    selectedAppointment,\n    cancellation_reason_raw: userInput,\n    cancellation_category: 'other',\n    ai_summary: 'Cancelamento direto'\n  }\n}];"
+      },
+      "id": "e8c9837d-2612-49aa-8530-271feb46f827",
+      "name": "Processar decisão do paciente",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        3456,
+        1296
+      ]
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict",
+            "version": 1
+          },
+          "conditions": [
+            {
+              "id": "wants-cancel-check",
+              "leftValue": "={{ $json.wantsCancel }}",
+              "rightValue": true,
+              "operator": {
+                "type": "boolean",
+                "operation": "equals"
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "id": "088b0df5-48c4-4098-9b5f-0ea5de7ea4a7",
+      "name": "Confirma cancelamento?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2,
+      "position": [
+        3664,
+        1296
+      ]
+    },
+    {
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "UPDATE public.conversations SET state = 'MENU', messages = '[]'::jsonb, updated_at = NOW() WHERE clinic_id = $1 AND patient_id = $2;",
+        "options": {
+          "queryReplacement": "{{ $json.clinic_id }}, {{ $json.patient_id }}"
+        }
+      },
+      "id": "115d6bb2-f49d-4b38-93f5-710bf6b6ca2a",
+      "name": "Update Menu (Nao cancelou)",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.5,
+      "position": [
+        3888,
+        1472
+      ],
+      "credentials": {
+        "postgres": {
+          "id": "hC1ecti2DctPVZwU",
+          "name": "Supabase account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "jsCode": "const data = $('Processar decisão do paciente').first().json;\nreturn [{\n  json: {\n    ...data,\n    transitionMsg: 'Sua consulta foi cancelada com sucesso! ✅\\n\\nVoltando ao menu principal...\\n\\n1️⃣ Agendar consulta\\n2️⃣ Cancelar ou remarcar consulta\\n3️⃣ Tirar dúvidas\\n4️⃣ Consultar valores\\n\\nDigite o número da opção desejada.'\n  }\n}];"
+      },
+      "id": "cb26d8a6-9dcd-40e1-a4e2-c185f2458af7",
+      "name": "Preparar mensagem de conclusão",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        4112,
+        1280
+      ]
+    },
+    {
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "INSERT INTO public.cancellation_logs (\n  clinic_id, patient_id, appointment_id,\n  cancellation_reason_raw, cancellation_category,\n  rescheduled, transferred_to_human, ai_summary\n) VALUES (\n  $1::uuid,\n  $2::uuid,\n  $3::uuid,\n  $4,\n  $5,\n  false,\n  true,\n  $6\n);",
+        "options": {
+          "queryReplacement": "{{ $json.clinic_id }}, {{ $json.patient_id }}, {{ $json.selectedAppointment ? $json.selectedAppointment.id : '' }}, {{ $json.cancellation_reason_raw }}, {{ $json.cancellation_category }}, {{ $json.ai_summary }}"
+        }
+      },
+      "id": "18359d8a-d73a-415b-aba6-edc08cca38d0",
+      "name": "Gravar cancellation_log",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.5,
+      "position": [
+        4336,
+        1280
+      ],
+      "credentials": {
+        "postgres": {
+          "id": "hC1ecti2DctPVZwU",
+          "name": "Supabase account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "=http://evolution-api:8080/message/sendText/{{ $('Preparar mensagem de conclusão').first().json.instanceName }}",
+        "authentication": "genericCredentialType",
+        "genericAuthType": "httpHeaderAuth",
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ JSON.stringify({ number: $('Preparar mensagem de conclusão').first().json.fromNumber, text: $('Preparar mensagem de conclusão').first().json.transitionMsg }) }}",
+        "options": {}
+      },
+      "id": "1afdcc00-9769-4be0-95f4-a39da3b254ae",
+      "name": "Enviar msg transição ao paciente",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        4784,
+        1280
+      ],
+      "credentials": {
+        "httpHeaderAuth": {
+          "id": "MOeN9qdxU9au08j3",
+          "name": "Evolution API"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "UPDATE public.conversations SET state = 'MENU', messages = '[]'::jsonb, updated_at = NOW() WHERE clinic_id = $1 AND patient_id = $2;",
+        "options": {
+          "queryReplacement": "{{ $('Preparar mensagem de conclusão').first().json.clinic_id }}, {{ $('Preparar mensagem de conclusão').first().json.patient_id }}"
+        }
+      },
+      "id": "01644bb9-fc64-473d-a037-0ddd28f423ef",
+      "name": "Update Menu Cancelamento Sucesso",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.5,
+      "position": [
+        4992,
+        1280
+      ],
+      "credentials": {
+        "postgres": {
+          "id": "hC1ecti2DctPVZwU",
+          "name": "Supabase account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict",
+            "version": 1
+          },
+          "conditions": [
+            {
+              "id": "appt-valid",
+              "leftValue": "={{ $json.validChoice }}",
+              "rightValue": true,
+              "operator": {
+                "type": "boolean",
+                "operation": "equals"
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "id": "50d45348-efcb-4039-b34b-7ebebfb63027",
+      "name": "Consulta válida?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2,
+      "position": [
+        3664,
+        1072
+      ]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "=http://evolution-api:8080/message/sendText/{{ $('Trigger do workflow principal').first().json.instanceName }}",
+        "authentication": "genericCredentialType",
+        "genericAuthType": "httpHeaderAuth",
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ JSON.stringify({ number: $('Trigger do workflow principal').first().json.fromNumber, text: $json.rePromptText }) }}",
+        "options": {}
+      },
+      "id": "38518049-6393-481d-8954-4a0ad2e34eb0",
+      "name": "Enviar: Consulta inválida",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        3888,
+        1088
+      ],
+      "credentials": {
+        "httpHeaderAuth": {
+          "id": "MOeN9qdxU9au08j3",
+          "name": "Evolution API"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict",
+            "version": 1
+          },
+          "conditions": [
+            {
+              "id": "exit-check",
+              "leftValue": "={{ $json.wantsExit }}",
+              "rightValue": true,
+              "operator": {
+                "type": "boolean",
+                "operation": "equals"
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "id": "e0f0939a-cb13-46eb-9164-602fd9c285bd",
+      "name": "Quer sair do cancelamento?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2,
+      "position": [
+        3456,
+        1056
+      ]
+    },
+    {
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "UPDATE public.conversations\nSET state = 'MENU', updated_at = NOW()\nWHERE clinic_id = $1::uuid\n  AND patient_id = $2::uuid;",
+        "options": {
+          "queryReplacement": "{{ $json.clinic_id }}, {{ $json.patient_id }}"
+        }
+      },
+      "id": "45422c59-a103-4997-a1e2-fa1b54f04dd2",
+      "name": "Resetar para MENU (cancelamento)",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.5,
+      "position": [
+        3664,
+        736
+      ],
+      "credentials": {
+        "postgres": {
+          "id": "hC1ecti2DctPVZwU",
+          "name": "Supabase account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "=http://evolution-api:8080/message/sendText/{{ $('Trigger do workflow principal').first().json.instanceName }}",
+        "authentication": "genericCredentialType",
+        "genericAuthType": "httpHeaderAuth",
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ JSON.stringify({ number: $('Trigger do workflow principal').first().json.fromNumber, text: 'Tudo bem! Se precisar de mais ajuda, estou por aqui. 😊\\n\\n1️⃣ Agendar consulta\\n2️⃣ Cancelar ou remarcar consulta\\n3️⃣ Tirar dúvidas\\n4️⃣ Consultar valores\\n\\nDigite o número da opção desejada.' }) }}",
+        "options": {}
+      },
+      "id": "ae773f10-eb99-4400-b07c-e2b44bdc927b",
+      "name": "Enviar menu (saída do cancelamento)",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        3888,
+        736
+      ],
+      "credentials": {
+        "httpHeaderAuth": {
+          "id": "MOeN9qdxU9au08j3",
+          "name": "Evolution API"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "UPDATE public.appointments\nSET status = 'cancelled', updated_at = NOW()\nWHERE id = $1::uuid\n  AND clinic_id = $2::uuid;",
+        "options": {
+          "queryReplacement": "{{ $('Preparar mensagem de conclusão').first().json.selectedAppointment.id }}, {{ $('Preparar mensagem de conclusão').first().json.clinic_id }}"
+        }
+      },
+      "id": "db41192c-3ebf-48f6-863f-9049f88bf03d",
+      "name": "Cancelar consulta no banco",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.5,
+      "position": [
+        4560,
+        1280
+      ],
+      "credentials": {
+        "postgres": {
+          "id": "hC1ecti2DctPVZwU",
+          "name": "Supabase account"
+        }
+      }
+    }
+  ],
+  "pinData": {},
+  "connections": {
+    "Trigger do workflow principal": {
+      "main": [
+        [
+          {
+            "node": "Determinar etapa",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Determinar etapa": {
+      "main": [
+        [
+          {
+            "node": "Switch etapa",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Switch etapa": {
+      "main": [
+        [
+          {
+            "node": "Listar consultas futuras",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Identificar consulta escolhida",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Processar decisão do paciente",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Listar consultas futuras": {
+      "main": [
+        [
+          {
+            "node": "Formatar consultas",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Formatar consultas": {
+      "main": [
+        [
+          {
+            "node": "Atualizar estado (consultas)",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Atualizar estado (consultas)": {
+      "main": [
+        [
+          {
+            "node": "Enviar lista de consultas",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Identificar consulta escolhida": {
+      "main": [
+        [
+          {
+            "node": "Quer sair do cancelamento?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Quer sair do cancelamento?": {
+      "main": [
+        [
+          {
+            "node": "Resetar para MENU (cancelamento)",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Consulta válida?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Resetar para MENU (cancelamento)": {
+      "main": [
+        [
+          {
+            "node": "Enviar menu (saída do cancelamento)",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Consulta válida?": {
+      "main": [
+        [
+          {
+            "node": "Preparar mensagem de confirmação",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Enviar: Consulta inválida",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Atualizar estado (motivo)": {
+      "main": [
+        [
+          {
+            "node": "Enviar pergunta de motivo",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Gravar cancellation_log": {
+      "main": [
+        [
+          {
+            "node": "Cancelar consulta no banco",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Cancelar consulta no banco": {
+      "main": [
+        [
+          {
+            "node": "Enviar msg transição ao paciente",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Enviar msg transição ao paciente": {
+      "main": [
+        [
+          {
+            "node": "Update Menu Cancelamento Sucesso",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Confirma cancelamento?": {
+      "main": [
+        [
+          {
+            "node": "Preparar mensagem de conclusão",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Update Menu (Nao cancelou)",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Update Menu (Nao cancelou)": {
+      "main": [
+        [
+          {
+            "node": "Preparar mensagem de conclusão",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Preparar mensagem de confirmação": {
+      "main": [
+        [
+          {
+            "node": "Atualizar estado (motivo)",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Processar decisão do paciente": {
+      "main": [
+        [
+          {
+            "node": "Confirma cancelamento?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Preparar mensagem de conclusão": {
+      "main": [
+        [
+          {
+            "node": "Gravar cancellation_log",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "active": true,
+  "settings": {
+    "executionOrder": "v1",
+    "binaryMode": "separate",
+    "errorWorkflow": "global_error_handler_123"
+  },
+  "versionId": "c5d06acf-5d2c-4099-bcf6-9b69fa453814",
+  "meta": {
+    "templateCredsSetupCompleted": true,
+    "instanceId": "1024d4a0bdb451c88b4bc14d3bfc3a2e5b93aca4588e773c7a54e98c73646ff7"
+  },
+  "nodeGroups": [],
+  "id": "3KseSrvoGEBDj7T7",
+  "tags": [
+    {
+      "updatedAt": "2026-06-16T16:22:28.171Z",
+      "createdAt": "2026-06-16T16:22:28.171Z",
+      "id": "FO8y1XT6vDqe62Od",
+      "name": "chatbot-clinicas"
+    },
+    {
+      "updatedAt": "2026-06-16T16:23:07.149Z",
+      "createdAt": "2026-06-16T16:23:07.149Z",
+      "id": "j1cD4E4m2KQi1C8m",
+      "name": "cancelamento"
+    },
+    {
+      "updatedAt": "2026-06-16T16:22:28.191Z",
+      "createdAt": "2026-06-16T16:22:28.191Z",
+      "id": "xZoY5gTJEcpE0AUB",
+      "name": "sub-workflow"
+    }
+  ]
+}
